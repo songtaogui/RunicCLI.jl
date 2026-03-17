@@ -1,0 +1,11 @@
+name = "RunicCLI"
+uuid = "67ca3c63-b4b2-4ee3-a21a-d0ea65885ced"
+version = "0.1.0"
+authors = ["songtaogui<songtaogui@sina.com>"]
+
+[deps]
+TextWrap = "b718987f-49a8-5099-9789-dcd902bef87d"
+
+[compat]
+TextWrap = "1.0.2"
+julia = "1.12"

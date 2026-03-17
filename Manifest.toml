@@ -1,0 +1,15 @@
+# This file is machine-generated - editing it directly is not advised
+
+julia_version = "1.12.4"
+manifest_format = "2.0"
+project_hash = "6b711a5500416fdc54fca3de89fae8a696c5388c"
+
+[[deps.RunicCLI]]
+path = "."
+uuid = "67ca3c63-b4b2-4ee3-a21a-d0ea65885ced"
+version = "0.1.0"
+
+[[deps.TextWrap]]
+git-tree-sha1 = "43044b737fa70bc12f6105061d3da38f881a3e3c"
+uuid = "b718987f-49a8-5099-9789-dcd902bef87d"
+version = "1.0.2"

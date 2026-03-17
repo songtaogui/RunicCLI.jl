@@ -328,7 +328,7 @@ Variadic tail positional.
 
 ---
 
-## C. Validation / constraints
+#### C. Validation / constraints
 
 > `@ARG_TEST name fn [msg]`
 Post-parse validator for one value.
@@ -359,7 +359,7 @@ Allow leftover/unconsumed args in current scope.
 
 ---
 
-## D. Subcommands
+#### D. Subcommands
 
 > `@CMD_SUB "name" begin ... end`
 > `@CMD_SUB "name" "description" begin ... end`
@@ -379,7 +379,7 @@ Runtime routing:
 
 ---
 
-## 5. Type mapping summary
+### 5. Type mapping summary
 
 - `@ARG_REQ T`, `@ARG_DEF T`, `@POS_REQ T`, `@POS_DEF T` → `T`
 - `@ARG_OPT T`, `@POS_OPT T` → `Union{T,Nothing}`
@@ -394,7 +394,7 @@ Plus always:
 
 ---
 
-## 6. Parsing APIs
+### 6. Parsing APIs
 
 > `parse_cli(::Type{T}, args=ARGS; allow_empty_option_value=false)`
 
@@ -417,7 +417,7 @@ If `true`, empty string values are accepted.
 
 ---
 
-## 7. `run_cli` integration pattern
+### 7. `run_cli` integration pattern
 
 Typical usage:
 
@@ -438,7 +438,7 @@ Common behavior pattern in CLI apps:
 
 ---
 
-## 8. Help behavior details
+### 8. Help behavior details
 
 - `-h` / `--help` before `--` triggers help exception (`ArgHelpRequested`)
 - Main help includes subcommand list
@@ -448,7 +448,7 @@ Common behavior pattern in CLI apps:
 
 ---
 
-## 9. Tokenization and edge cases
+### 9. Tokenization and edge cases
 
 - Supports `--opt=value` form (split into flag + value)
 - Supports short bundles like `-abc` for letter flags
@@ -458,7 +458,7 @@ Common behavior pattern in CLI apps:
 
 ---
 
-## 10. Complete example
+### 10. Complete example
 
 ```julia
 @CMD_MAIN AppCLI begin

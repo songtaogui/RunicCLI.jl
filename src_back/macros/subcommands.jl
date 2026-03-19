@@ -1,3 +1,5 @@
+# RunicCLI
+# macros/subcommands.jl
 
 Base.@kwdef struct NormalizedSubCmd
     name::String
@@ -8,6 +10,12 @@ Base.@kwdef struct NormalizedSubCmd
     allow_extra::Bool = false
 end
 
+"""
+Build subcommand metadata and dispatch branches from normalized @CMD_SUB nodes.
+
+Input nodes are expected in normalized form:
+Expr(:macrocall, ..., sub_name::String, sub_desc::String, sub_block::Expr, sub_allow_extra::Bool)
+"""
 function _build_subcommand_bundle(normalized_sub_nodes::Vector{NormalizedSubCmd}, struct_name, main_ctor_args::Vector{Symbol})
     sub_def_items = Expr[]
     sub_parser_exprs = Expr[]
@@ -35,18 +43,19 @@ function _build_subcommand_bundle(normalized_sub_nodes::Vector{NormalizedSubCmd}
         end
         sub_main_block = Expr(:block, sub_main_nodes...)
 
-        s_fields, s_option_parse_stmts, s_positional_parse_stmts, s_post_stmts, s_argdefs_expr,
-        s_gdefs_excl, s_gdefs_incl, s_arg_requires_defs, s_arg_conflicts_defs = _compile_cmd_block(sub_main_block)
+        sub_spec = _parse_cmd_block_spec(sub_main_block)
 
-        s_ctor_args = Symbol[f.args[1] for f in s_fields]
+        s_fields, s_option_parse_stmts, s_positional_parse_stmts, s_post_stmts, s_argdefs_expr,
+        s_gdefs_excl, s_gdefs_incl, s_arg_requires_defs, s_arg_conflicts_defs = _emit_cmd_block(sub_spec)
+
+        s_ctor_args = Symbol[a.name for a in sub_spec.args]
 
         s_parser_name = gensym(Symbol("parse_sub_", replace(sub_name, r"[^A-Za-z0-9_]" => "_")))
-        s_nt_expr = :( (; $(s_ctor_args...)) )
+        s_nt_expr = _emit_namedtuple_literal(s_ctor_args)
 
         s_parser_expr = _emit_parser_function(
             s_parser_name,
-            :($s_nt_expr),
-            s_fields,
+            s_nt_expr,
             s_ctor_args,
             s_option_parse_stmts,
             s_positional_parse_stmts,
@@ -60,15 +69,20 @@ function _build_subcommand_bundle(normalized_sub_nodes::Vector{NormalizedSubCmd}
 
         main_field_exprs = [:(getfield(_main_obj, $(QuoteNode(nm)))) for nm in main_ctor_args]
 
-        s_arg_requires_expr = Expr(:vect, [
-            :($(_gr(:ArgRequiresDef))(anchor=$(QuoteNode(rd.anchor)), targets=$(Expr(:vect, QuoteNode.(rd.targets)...))))
-            for rd in s_arg_requires_defs
-        ]...)
+        s_excl_expr, s_incl_expr, s_arg_requires_expr, s_arg_conflicts_expr = _emit_constraint_exprs(sub_spec)
+        s_args_expr = :($(_gr(:ArgDef))[$(s_argdefs_expr...)])
 
-        s_arg_conflicts_expr = Expr(:vect, [
-            :($(_gr(:ArgConflictsDef))(anchor=$(QuoteNode(cd.anchor)), targets=$(Expr(:vect, QuoteNode.(cd.targets)...))))
-            for cd in s_arg_conflicts_defs
-        ]...)
+        s_common_kwargs = _emit_cli_common_kwargs_expr(
+            sub_usage,
+            sub_desc,
+            sub_epilog,
+            s_args_expr,
+            sub_allow_extra,
+            s_excl_expr,
+            s_incl_expr,
+            s_arg_requires_expr,
+            s_arg_conflicts_expr
+        )
 
         push!(dispatch_branches, quote
             if _sub == $(sub_name)
@@ -81,33 +95,17 @@ function _build_subcommand_bundle(normalized_sub_nodes::Vector{NormalizedSubCmd}
             if _sub == $(sub_name)
                 local _sub_def = $(_gr(:CliDef))(
                     cmd_name = $(sub_name),
-                    usage = $(sub_usage),
-                    description = $(sub_desc),
-                    epilog = $(sub_epilog),
-                    args = $(_gr(:ArgDef))[$(s_argdefs_expr...)],
-                    subcommands = $(_gr(:SubcommandDef))[],
-                    allow_extra = $(sub_allow_extra),
-                    mutual_exclusion_groups = $(Expr(:vect, [Expr(:vect, QuoteNode.(s_gdefs_excl)...) for s_gdefs_excl in s_gdefs_excl]...)),
-                    mutual_inclusion_groups = $(Expr(:vect, [Expr(:vect, QuoteNode.(s_gdefs_incl)...) for s_gdefs_incl in s_gdefs_incl]...)),
-                    arg_requires = $(s_arg_requires_expr),
-                    arg_conflicts = $(s_arg_conflicts_expr)
+                    $(s_common_kwargs),
+                    subcommands = $(_gr(:SubcommandDef))[]
                 )
                 throw($(_gr(:ArgHelpRequested))(_sub_def, _path * " " * $(sub_name)))
             end
         end)
 
         push!(sub_def_items, :($(_gr(:SubcommandDef))(
-            name=$(sub_name),
-            description=$(sub_desc),
-            usage=$(sub_usage),
-            epilog=$(sub_epilog),
-            body=nothing,
-            args=$(_gr(:ArgDef))[$(s_argdefs_expr...)],
-            allow_extra=$(sub_allow_extra),
-            mutual_exclusion_groups=$(Expr(:vect, [Expr(:vect, QuoteNode.(s_gdefs_excl)...) for s_gdefs_excl in s_gdefs_excl]...)),
-            mutual_inclusion_groups=$(Expr(:vect, [Expr(:vect, QuoteNode.(s_gdefs_incl)...) for s_gdefs_incl in s_gdefs_incl]...)),
-            arg_requires=$(s_arg_requires_expr),
-            arg_conflicts=$(s_arg_conflicts_expr)
+            name = $(sub_name),
+            $(s_common_kwargs),
+            body = nothing
         )))
 
         push!(sub_parser_exprs, s_parser_expr)
@@ -117,6 +115,9 @@ function _build_subcommand_bundle(normalized_sub_nodes::Vector{NormalizedSubCmd}
 end
 
 
+"""
+Build final expansion for @CMD_MAIN.
+"""
 function _build_main_parser_expr(
     struct_name, usage, desc, epilog, allow_extra,
     fields, ctor_args, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr,
@@ -124,45 +125,69 @@ function _build_main_parser_expr(
     sub_def_items, sub_parser_exprs, dispatch_branches, sub_help_branches, sub_names
 )
     main_parser_name = gensym(:parse_main)
-    main_result_expr = :( (; $(ctor_args...)) )
+    main_result_expr = _emit_namedtuple_literal(ctor_args)
 
-    arg_requires_expr = Expr(:vect, [
-        :($(_gr(:ArgRequiresDef))(anchor=$(QuoteNode(rd.anchor)), targets=$(Expr(:vect, QuoteNode.(rd.targets)...))))
-        for rd in arg_requires_defs
-    ]...)
+    main_spec = NormalizedCmdSpec(
+        args=NormalizedArgSpec[],
+        mutual_exclusion_groups=gdefs_excl,
+        mutual_inclusion_groups=gdefs_incl,
+        arg_requires=arg_requires_defs,
+        arg_conflicts=arg_conflicts_defs
+    )
 
-    arg_conflicts_expr = Expr(:vect, [
-        :($(_gr(:ArgConflictsDef))(anchor=$(QuoteNode(cd.anchor)), targets=$(Expr(:vect, QuoteNode.(cd.targets)...))))
-        for cd in arg_conflicts_defs
-    ]...)
+    excl_expr, incl_expr, arg_requires_expr, arg_conflicts_expr = _emit_constraint_exprs(main_spec)
+    main_args_expr = :($(_gr(:ArgDef))[$(argdefs_expr...)])
+
+    main_common_kwargs = _emit_cli_common_kwargs_expr(
+        usage,
+        desc,
+        epilog,
+        main_args_expr,
+        allow_extra,
+        excl_expr,
+        incl_expr,
+        arg_requires_expr,
+        arg_conflicts_expr
+    )
+
+    main_field_exprs = [:(getfield(_main_obj, $(QuoteNode(nm)))) for nm in ctor_args]
+    final_ctor_expr = Expr(:call, struct_name, main_field_exprs..., nothing, nothing)
+
+    struct_expr = Expr(
+        :struct,
+        false,
+        struct_name,
+        Expr(:block,
+            fields...,
+            :(subcommand::Union{Nothing,String}),
+            :(subcommand_args::Union{Nothing,NamedTuple})
+        )
+    )
+
+    main_parser_expr = _emit_parser_function(
+        main_parser_name,
+        main_result_expr,
+        ctor_args,
+        option_parse_stmts,
+        positional_parse_stmts,
+        post_stmts,
+        gdefs_excl,
+        gdefs_incl,
+        arg_requires_defs,
+        arg_conflicts_defs,
+        allow_extra;
+        strict_leftover=true
+    )
 
     return esc(quote
-        struct $(struct_name)
-            $(fields...)
-            subcommand::Union{Nothing,String}
-            subcommand_args::Union{Nothing,NamedTuple}
-        end
+        $struct_expr
 
-        $(_emit_parser_function(
-            main_parser_name,
-            main_result_expr,
-            fields,
-            ctor_args,
-            option_parse_stmts,
-            positional_parse_stmts,
-            post_stmts,
-            gdefs_excl,
-            gdefs_incl,
-            arg_requires_defs,
-            arg_conflicts_defs,
-            allow_extra;
-            strict_leftover=true
-        ))
+        $main_parser_expr
         $(sub_parser_exprs...)
 
         function $(struct_name)(argv::Vector{String}=ARGS; allow_empty_option_value::Bool=false)
             local _path = String($(QuoteNode(string(struct_name))))
-            local _main_argdefs = $(_gr(:ArgDef))[$(argdefs_expr...)]
+            local _main_argdefs = $main_args_expr
 
             local _sub = nothing
             local _sub_idx = 0
@@ -188,22 +213,16 @@ function _build_main_parser_expr(
             if $(_gr(:_has_help_flag_before_dd))(argv)
                 local _def = $(_gr(:CliDef))(
                     cmd_name = _path,
-                    usage = $(usage),
-                    description = $(desc),
-                    epilog = $(epilog),
-                    args = _main_argdefs,
-                    subcommands = $(_gr(:SubcommandDef))[$(sub_def_items...)],
-                    allow_extra = $(allow_extra),
-                    mutual_exclusion_groups = $(Expr(:vect, [Expr(:vect, QuoteNode.(g)...) for g in gdefs_excl]...)),
-                    mutual_inclusion_groups = $(Expr(:vect, [Expr(:vect, QuoteNode.(g)...) for g in gdefs_incl]...)),
-                    arg_requires = $(arg_requires_expr),
-                    arg_conflicts = $(arg_conflicts_expr)
+                    $(main_common_kwargs),
+                    subcommands = $(_gr(:SubcommandDef))[$(sub_def_items...)]
                 )
                 throw($(_gr(:ArgHelpRequested))(_def, _path))
             end
 
             local _main_obj = $(main_parser_name)(argv; allow_empty_option_value=allow_empty_option_value)
-            return $(struct_name)($([:(getfield(_main_obj, $(QuoteNode(nm)))) for nm in ctor_args]...), nothing, nothing)
+            return $final_ctor_expr
         end
     end)
 end
+
+

@@ -3,7 +3,10 @@ function _compile_cmd_block(block::Expr)
     option_parse_stmts = Expr[]
     positional_parse_stmts = Expr[]
     post_stmts = Expr[]
-    group_defs = Vector{Vector{Symbol}}()
+    group_defs_excl = Vector{Vector{Symbol}}()
+    group_defs_incl = Vector{Vector{Symbol}}()
+    arg_requires_defs = ArgRequiresDef[]
+    arg_conflicts_defs = ArgConflictsDef[]
     argdefs_expr = Expr[]
 
     declared_names = Set{Symbol}()
@@ -34,11 +37,6 @@ function _compile_cmd_block(block::Expr)
         throw(ArgumentError("$(macro_name) $(role) must be a Symbol identifier; got $(repr(x))"))
     end
 
-    # 解析“参数名 + 后续参数”。
-    # 兼容关键字名写法导致的 AST 形态：
-    #   @ARG_FLAG global "-g"
-    # 其中 name 位会变成 Expr(:global, "-g")，这里修正为：
-    #   name = :global, rest 追加 "-g"
     local function _extract_name_and_rest(node::Expr, name_idx::Int, macro_name::String, role::String)
         x = node.args[name_idx]
         tail = Any[node.args[i] for i in (name_idx + 1):length(node.args)]
@@ -55,7 +53,6 @@ function _compile_cmd_block(block::Expr)
                 if a isa Symbol
                     return a, tail
                 elseif a isa String || (a isa QuoteNode && a.value isa String)
-                    # 关键字名 + 第一个后续参数被 parser 吃进 Expr
                     return Symbol(String(x.head)), Any[a, tail...]
                 end
             end
@@ -108,7 +105,38 @@ function _compile_cmd_block(block::Expr)
             end
             length(syms) < 2 && throw(ArgumentError("@GROUP_EXCL requires at least two argument names"))
             length(unique(syms)) != length(syms) && throw(ArgumentError("@GROUP_EXCL contains duplicate argument names"))
-            push!(group_defs, syms)
+            push!(group_defs_excl, syms)
+
+        elseif m == SYM_GROUP_INCL
+            syms = Symbol[]
+            for i in 3:length(node.args)
+                push!(syms, _expect_name_symbol(node.args[i], "@GROUP_INCL", "argument name"))
+            end
+            length(syms) < 2 && throw(ArgumentError("@GROUP_INCL requires at least two argument names"))
+            length(unique(syms)) != length(syms) && throw(ArgumentError("@GROUP_INCL contains duplicate argument names"))
+            push!(group_defs_incl, syms)
+
+        elseif m == SYM_ARG_REQUIRES
+            anchor = _expect_name_symbol(node.args[3], "@ARG_REQUIRES", "anchor argument")
+            targets = Symbol[]
+            for i in 4:length(node.args)
+                push!(targets, _expect_name_symbol(node.args[i], "@ARG_REQUIRES", "target argument"))
+            end
+            isempty(targets) && throw(ArgumentError("@ARG_REQUIRES requires at least one target argument"))
+            anchor in targets && throw(ArgumentError("@ARG_REQUIRES anchor argument must not appear in targets"))
+            length(unique(targets)) != length(targets) && throw(ArgumentError("@ARG_REQUIRES contains duplicate target arguments"))
+            push!(arg_requires_defs, ArgRequiresDef(anchor=anchor, targets=targets))
+
+        elseif m == SYM_ARG_CONFLICTS
+            anchor = _expect_name_symbol(node.args[3], "@ARG_CONFLICTS", "anchor argument")
+            targets = Symbol[]
+            for i in 4:length(node.args)
+                push!(targets, _expect_name_symbol(node.args[i], "@ARG_CONFLICTS", "target argument"))
+            end
+            isempty(targets) && throw(ArgumentError("@ARG_CONFLICTS requires at least one target argument"))
+            anchor in targets && throw(ArgumentError("@ARG_CONFLICTS anchor argument must not appear in targets"))
+            length(unique(targets)) != length(targets) && throw(ArgumentError("@ARG_CONFLICTS contains duplicate target arguments"))
+            push!(arg_conflicts_defs, ArgConflictsDef(anchor=anchor, targets=targets))
 
         elseif m == SYM_REQ
             T = node.args[3]
@@ -382,13 +410,33 @@ function _compile_cmd_block(block::Expr)
         end
     end
 
-    for grp in group_defs, s in grp
+    for grp in group_defs_excl, s in grp
         if !(s in declared_names)
             throw(ArgumentError("@GROUP_EXCL references unknown argument: $(s)"))
         end
     end
 
-    for grp in group_defs
+    for grp in group_defs_incl, s in grp
+        if !(s in declared_names)
+            throw(ArgumentError("@GROUP_INCL references unknown argument: $(s)"))
+        end
+    end
+
+    for rd in arg_requires_defs
+        rd.anchor in declared_names || throw(ArgumentError("@ARG_REQUIRES references unknown argument: $(rd.anchor)"))
+        for s in rd.targets
+            s in declared_names || throw(ArgumentError("@ARG_REQUIRES references unknown argument: $(s)"))
+        end
+    end
+
+    for cd in arg_conflicts_defs
+        cd.anchor in declared_names || throw(ArgumentError("@ARG_CONFLICTS references unknown argument: $(cd.anchor)"))
+        for s in cd.targets
+            s in declared_names || throw(ArgumentError("@ARG_CONFLICTS references unknown argument: $(s)"))
+        end
+    end
+
+    for grp in group_defs_excl
         for s in grp
             if haskey(name_kind, s)
                 k = name_kind[s]
@@ -399,5 +447,50 @@ function _compile_cmd_block(block::Expr)
         end
     end
 
-    return fields, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr, group_defs
+    for grp in group_defs_incl
+        for s in grp
+            if haskey(name_kind, s)
+                k = name_kind[s]
+                if k in (AK_POS_REQUIRED, AK_POS_DEFAULT, AK_POS_OPTIONAL, AK_POS_REST)
+                    throw(ArgumentError("@GROUP_INCL supports only option-style arguments, got positional: $(s)"))
+                end
+            end
+        end
+    end
+
+    for rd in arg_requires_defs
+        if haskey(name_kind, rd.anchor)
+            k = name_kind[rd.anchor]
+            if k in (AK_POS_REQUIRED, AK_POS_DEFAULT, AK_POS_OPTIONAL, AK_POS_REST)
+                throw(ArgumentError("@ARG_REQUIRES supports only option-style arguments, got positional: $(rd.anchor)"))
+            end
+        end
+        for s in rd.targets
+            if haskey(name_kind, s)
+                k = name_kind[s]
+                if k in (AK_POS_REQUIRED, AK_POS_DEFAULT, AK_POS_OPTIONAL, AK_POS_REST)
+                    throw(ArgumentError("@ARG_REQUIRES supports only option-style arguments, got positional: $(s)"))
+                end
+            end
+        end
+    end
+
+    for cd in arg_conflicts_defs
+        if haskey(name_kind, cd.anchor)
+            k = name_kind[cd.anchor]
+            if k in (AK_POS_REQUIRED, AK_POS_DEFAULT, AK_POS_OPTIONAL, AK_POS_REST)
+                throw(ArgumentError("@ARG_CONFLICTS supports only option-style arguments, got positional: $(cd.anchor)"))
+            end
+        end
+        for s in cd.targets
+            if haskey(name_kind, s)
+                k = name_kind[s]
+                if k in (AK_POS_REQUIRED, AK_POS_DEFAULT, AK_POS_OPTIONAL, AK_POS_REST)
+                    throw(ArgumentError("@ARG_CONFLICTS supports only option-style arguments, got positional: $(s)"))
+                end
+            end
+        end
+    end
+
+    return fields, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr, group_defs_excl, group_defs_incl, arg_requires_defs, arg_conflicts_defs
 end

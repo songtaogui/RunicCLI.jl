@@ -1,10 +1,5 @@
-# RunicCLI
-# parser_utils.jl
 
 function _split_multiflag(s::AbstractString)::Vector{String}
-    # Classic short-option bundling:
-    # -abc => -a -b -c
-    # Any non-ASCII-letter in bundle is rejected to avoid ambiguous semantics.
     isascii(s) || _throw_arg_error("Invalid short option bundle (non-ASCII): $s")
     out = String[]
     max_i = lastindex(s)
@@ -157,10 +152,6 @@ function _pop_multi_values!(args::Vector{String}, flags::Vector{String}, allow_e
 end
 
 
-# Parsing strategy for CLI string input:
-# 1) tryparse(T, s) when applicable
-# 2) parse(T, s) when applicable
-# 3) T(s) as last fallback
 @inline _parse_value(::Type{String}, s::String, ::String) = s
 @inline _parse_value(::Type{Symbol}, s::String, ::String) = Symbol(s)
 @inline _parse_value(::Type{Bool}, s::String, name::String) = begin
@@ -217,9 +208,6 @@ end
 end
 
 
-# Default conversion strategy is different:
-# - defaults are converted via convert(T, v)
-# - defaults do not go through string parsing pipeline
 @inline function _convert_default(::Type{T}, v, name::String) where {T}
     try
         return v isa T ? v : convert(T, v)
@@ -309,3 +297,134 @@ function _locate_subcommand(
     return (nothing, 0)
 end
 
+function _reject_unknown_option_tokens(args::Vector{String})
+    i = 1
+    while i <= length(args)
+        tok = args[i]
+        if tok == "--"
+            return
+        end
+        if _looks_like_flag_token(tok) && !_looks_like_negative_number_token(tok)
+            _throw_arg_error("Unknown or unexpected option: $tok")
+        end
+        i += 1
+    end
+end
+
+function _build_main_flag_sets(argdefs::Vector{ArgDef})
+    flags_need_value = Set{String}()
+    flags_no_value = Set{String}()
+
+    for a in argdefs
+        if a.kind in (AK_OPTION, AK_OPTION_MULTI)
+            for f in a.flags
+                push!(flags_need_value, f)
+            end
+        elseif a.kind in (AK_FLAG, AK_COUNT)
+            for f in a.flags
+                push!(flags_no_value, f)
+            end
+        end
+    end
+
+    return flags_need_value, flags_no_value
+end
+
+function _extract_global_options(
+    argv::Vector{String},
+    sub_idx::Int,
+    flags_need_value::Set{String},
+    flags_no_value::Set{String}
+)::Tuple{Vector{String},Vector{String}}
+    main_tokens = String[]
+    sub_tokens = String[]
+
+    i = 1
+    passthrough = false
+
+    while i <= length(argv)
+        tok = argv[i]
+
+        if i == sub_idx
+            i += 1
+            continue
+        end
+
+        if passthrough
+            push!(sub_tokens, tok)
+            i += 1
+            continue
+        end
+
+        if tok == "--"
+            push!(sub_tokens, tok)
+            passthrough = true
+            i += 1
+            continue
+        end
+
+        if startswith(tok, "-") && tok != "-"
+            parts = split(tok, '=', limit=2)
+            head = parts[1]
+            has_inline_value = (length(parts) == 2)
+
+            if head in flags_need_value
+                push!(main_tokens, tok)
+                if !has_inline_value
+                    i == length(argv) && _throw_arg_error("Option $tok requires a value")
+                    nxt = argv[i+1]
+                    if nxt == "--"
+                        _throw_arg_error("Option $tok requires a value")
+                    end
+                    push!(main_tokens, nxt)
+                    i += 2
+                else
+                    i += 1
+                end
+                continue
+            elseif head in flags_no_value
+                push!(main_tokens, tok)
+                i += 1
+                continue
+            elseif startswith(head, "-") && !startswith(head, "--") && length(head) > 2
+                expanded = _split_multiflag(head)
+                local all_known = true
+                local tail_requires_value = false
+
+                for (k, f) in enumerate(expanded)
+                    if f in flags_need_value
+                        if k != length(expanded)
+                            _throw_arg_error("Invalid short option bundle: option requiring value must be last in bundle: $tok")
+                        end
+                        tail_requires_value = true
+                    elseif f in flags_no_value
+                    else
+                        all_known = false
+                        break
+                    end
+                end
+
+                if all_known
+                    append!(main_tokens, expanded)
+                    if tail_requires_value
+                        i == length(argv) && _throw_arg_error("Option $(expanded[end]) requires a value")
+                        nxt = argv[i+1]
+                        if nxt == "--"
+                            _throw_arg_error("Option $(expanded[end]) requires a value")
+                        end
+                        push!(main_tokens, nxt)
+                        i += 2
+                    else
+                        i += 1
+                    end
+                    continue
+                end
+            end
+        end
+
+        push!(sub_tokens, tok)
+        i += 1
+    end
+
+    return main_tokens, sub_tokens
+end

@@ -1,7 +1,16 @@
+# RunicCLI
+# macros/generators.jl
+function _emit_parser_var_decls(ctor_args::Vector{Symbol}, result_expr)
+    decls = Expr[]
+    for nm in ctor_args
+        push!(decls, :($(nm) = nothing))
+    end
+    return decls
+end
+
 function _emit_parser_function(
     fname::Symbol,
-    result_type,
-    fields::Vector{Expr},
+    result_expr,
     ctor_args::Vector{Symbol},
     option_parse_stmts::Vector{Expr},
     positional_parse_stmts::Vector{Expr},
@@ -21,18 +30,18 @@ function _emit_parser_function(
 
     provided_init = Expr[]
     provided_finalize = Expr[]
-    for nm in ctor_args
-        local provided_nm = Symbol("_provided_", nm)
-        local cnt_nm = Symbol("_cnt_", nm)
-        push!(provided_init, :(local $(provided_nm) = false))
-        push!(provided_finalize, :(_provided_map[$(QuoteNode(nm))] = $(provided_nm)))
-        push!(provided_finalize, :(_provided_count_map[$(QuoteNode(nm))] = (@isdefined($(cnt_nm)) ? $(cnt_nm) : Int($(provided_nm) ? 1 : 0))))
-    end
+    count_init = Expr[]
+    parser_var_decls = _emit_parser_var_decls(ctor_args, result_expr)
 
-    return_expr = if result_type isa Symbol
-        :($(result_type)($([:( $(nm) ) for nm in ctor_args]...)))
-    else
-        result_type
+    for nm in ctor_args
+        provided_nm = Symbol("_provided_", nm)
+        cnt_nm = Symbol("_cnt_", nm)
+
+        push!(provided_init, :($(provided_nm) = false))
+        push!(count_init, :($(cnt_nm) = 0))
+
+        push!(provided_finalize, :(_provided_map[$(QuoteNode(nm))] = $(provided_nm)))
+        push!(provided_finalize, :(_provided_count_map[$(QuoteNode(nm))] = $(cnt_nm) > 0 ? $(cnt_nm) : Int($(provided_nm) ? 1 : 0)))
     end
 
     unknown_option_check = allow_extra ? :(nothing) : :($(_gr(:_reject_unknown_option_tokens))(_opt_args))
@@ -57,7 +66,9 @@ function _emit_parser_function(
             local _provided_map = Dict{Symbol,Bool}()
             local _provided_count_map = Dict{Symbol,Int}()
 
+            $(parser_var_decls...)
             $(provided_init...)
+            $(count_init...)
 
             $(option_parse_stmts...)
 
@@ -76,12 +87,14 @@ function _emit_parser_function(
             $(arg_conflicts_checks...)
             $(leftover_check)
 
-            return $(return_expr)
+            return $(result_expr)
         end
     end
 end
 
-
+"""
+Helper to emit ArgDef vector expression.
+"""
 function _emit_argdefs(argdefs_expr::Vector{Expr})
     return :(ArgDef[$(argdefs_expr...)])
 end

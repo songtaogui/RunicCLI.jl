@@ -1,0 +1,2035 @@
+#FILEPATH: ./RunicCLI.jl
+module RunicCLI
+
+using TextWrap
+using Base: @kwdef
+
+export ArgParseError, ArgHelpRequested, ArgHelpTemplate
+export ArgDef, SubcommandDef, CliDef
+export ArgRequiresDef, ArgConflictsDef
+export ArgKind, AK_FLAG, AK_COUNT, AK_OPTION, AK_OPTION_MULTI, AK_POS_REQUIRED, AK_POS_DEFAULT, AK_POS_OPTIONAL, AK_POS_REST
+
+export HelpStyle, HELP_PLAIN, HELP_COLORED
+export HelpLabelStyle, HLS_HIDDEN, HLS_PLAIN, HLS_BOLD, HLS_COLORED
+export HelpTheme, HelpFormatOptions, HelpTemplateOptions, build_help_template
+
+export @CMD_MAIN, @CMD_SUB
+export @CMD_USAGE, @CMD_DESC, @CMD_EPILOG
+export @ARG_REQ, @ARG_DEF, @ARG_OPT, @ARG_FLAG, @ARG_COUNT, @ARG_MULTI
+export @POS_REQ, @POS_DEF, @POS_OPT, @POS_REST
+export @ARG_TEST, @ARG_STREAM
+export @GROUP_EXCL, @GROUP_INCL, @ARG_REQUIRES, @ARG_CONFLICTS, @ALLOW_EXTRA
+
+export parse_cli, run_cli, render_help, default_help_template, colored_help_template
+
+
+include("core/types.jl")
+include("core/errors.jl")
+include("core/parser_utils.jl")
+include("core/ast_utils.jl")
+
+include("help/config.jl")
+include("help/utils.jl")
+include("help/layout.jl")
+include("help/template.jl")
+include("help/render.jl")
+
+include("runtime/api.jl")
+include("runtime/execution.jl")
+
+include("macros/common.jl")
+include("macros/compiler.jl")
+include("macros/generators.jl")
+include("macros/subcommands.jl") 
+include("macros/placeholders.jl")
+include("macros/cmd_main.jl")
+
+end # module#FILEPATH: ./core/ast_utils.jl
+
+const SYM_USAGE   = Symbol("@CMD_USAGE")
+const SYM_DESC    = Symbol("@CMD_DESC")
+const SYM_EPILOG  = Symbol("@CMD_EPILOG")
+const SYM_SUB     = Symbol("@CMD_SUB")
+const SYM_TEST    = Symbol("@ARG_TEST")
+const SYM_STREAM  = Symbol("@ARG_STREAM")
+
+const SYM_GROUP   = Symbol("@GROUP_EXCL")
+const SYM_GROUP_INCL = Symbol("@GROUP_INCL")
+const SYM_ARG_REQUIRES = Symbol("@ARG_REQUIRES")
+const SYM_ARG_CONFLICTS = Symbol("@ARG_CONFLICTS")
+const SYM_ALLOW   = Symbol("@ALLOW_EXTRA")
+
+const SYM_REQ     = Symbol("@ARG_REQ")
+const SYM_DEF     = Symbol("@ARG_DEF")
+const SYM_OPT     = Symbol("@ARG_OPT")
+const SYM_FLAG    = Symbol("@ARG_FLAG")
+const SYM_COUNT   = Symbol("@ARG_COUNT")
+const SYM_MULTI   = Symbol("@ARG_MULTI")
+
+const SYM_POS_REQ = Symbol("@POS_REQ")
+const SYM_POS_DEF = Symbol("@POS_DEF")
+const SYM_POS_OPT = Symbol("@POS_OPT")
+const SYM_POS_RST = Symbol("@POS_REST")
+
+function _extract_macro_symbol(x)::Union{Symbol,Nothing}
+    if x isa Symbol
+        return x
+    elseif x isa QuoteNode && x.value isa Symbol
+        return x.value
+    elseif x isa Expr
+        if x.head == :. && !isempty(x.args)
+            return _extract_macro_symbol(x.args[end])
+        elseif x.head == :quote && length(x.args) == 1
+            return _extract_macro_symbol(x.args[1])
+        end
+    end
+    return nothing
+end
+
+
+function _getmacroname(ex::Expr)::Union{Symbol,Nothing}
+    if ex.head != :macrocall || isempty(ex.args)
+        return nothing
+    end
+    sym = _extract_macro_symbol(ex.args[1])
+    return sym
+end
+
+@inline function _flatten_block_nodes!(x, out::Vector{Any})
+    if x isa LineNumberNode || x === nothing
+        return
+    elseif x isa Expr && x.head == :block
+        for a in x.args
+            _flatten_block_nodes!(a, out)
+        end
+    else
+        push!(out, x)
+    end
+end
+
+function _getmacrocalls(block::Expr)
+    nodes = Any[]
+    _flatten_block_nodes!(block, nodes)
+    return Iterators.filter(x -> x isa Expr && x.head == :macrocall, nodes)
+end
+
+function _nonmacro_nodes(block::Expr)::Vector{Any}
+    nodes = Any[]
+    _flatten_block_nodes!(block, nodes)
+
+    out = Any[]
+    for x in nodes
+        if x isa Expr && x.head == :macrocall
+            continue
+        else
+            push!(out, x)
+        end
+    end
+    return out
+end
+
+@inline function _string_literal_value(x)::Union{String,Nothing}
+    if x isa String
+        return x
+    elseif x isa QuoteNode && x.value isa String
+        return x.value
+    else
+        return nothing
+    end
+end
+
+@inline function _kw_pair(a)::Union{Nothing,Tuple{Any,Any}}
+    if a isa Expr
+        if (a.head == :(=) || a.head == :kw) && length(a.args) == 2
+            return (a.args[1], a.args[2])
+        elseif a.head == :parameters
+            for x in a.args
+                p = _kw_pair(x)
+                p === nothing || return p
+            end
+        end
+    end
+    return nothing
+end
+
+@inline function _kw_key_symbol(k)::Union{Symbol,Nothing}
+    if k isa Symbol
+        return k
+    elseif k isa QuoteNode && k.value isa Symbol
+        return k.value
+    else
+        return nothing
+    end
+end
+
+function _extract_help_meta!(
+    rest::Vector{Any};
+    allow_help_name::Bool=true,
+    macro_name::String=""
+)::Tuple{String,String}
+    _ctx(msg::String) = isempty(macro_name) ? msg : "$(macro_name): " * msg
+
+    help_kw = nothing
+    help_name_kw = nothing
+
+    i = 1
+    while i <= length(rest)
+        a = rest[i]
+        local p = _kw_pair(a)
+        if p !== nothing
+            key_raw, rhs = p
+            key = _kw_key_symbol(key_raw)
+            key === nothing && throw(ArgumentError(_ctx("invalid keyword name: $(repr(key_raw))")))
+
+            if key == :help
+                rhs_s = _string_literal_value(rhs)
+                rhs_s === nothing && throw(ArgumentError(_ctx("help keyword accepts only a string literal")))
+                help_kw !== nothing && throw(ArgumentError(_ctx("duplicate help keyword provided")))
+                help_kw = rhs_s
+                deleteat!(rest, i)
+                continue
+            elseif key == :help_name
+                allow_help_name || throw(ArgumentError(_ctx("help_name is not allowed here")))
+                rhs_s = _string_literal_value(rhs)
+                rhs_s === nothing && throw(ArgumentError(_ctx("help_name keyword accepts only a string literal")))
+                occursin('\n', rhs_s) && throw(ArgumentError(_ctx("help_name must be single-line text")))
+                help_name_kw !== nothing && throw(ArgumentError(_ctx("duplicate help_name keyword provided")))
+                help_name_kw = rhs_s
+                deleteat!(rest, i)
+                continue
+            else
+                throw(ArgumentError(_ctx("unknown keyword $(key); supported keywords are help=\"...\" and help_name=\"...\"")))
+            end
+        end
+        i += 1
+    end
+
+    return (help_kw === nothing ? "" : help_kw,
+            help_name_kw === nothing ? "" : help_name_kw)
+end
+
+
+
+#FILEPATH: ./core/errors.jl
+
+struct ArgParseError <: Exception
+    message::String
+end
+
+
+struct ArgHelpRequested <: Exception
+    def::CliDef
+    path::String
+    message::String
+end
+ArgHelpRequested(def::CliDef, path::String="") = ArgHelpRequested(def, path, "")
+ArgHelpRequested(message::String) = ArgHelpRequested(CliDef(), "", message)
+
+Base.showerror(io::IO, e::ArgParseError) = print(io, "Argument parsing error: ", e.message)
+
+function Base.showerror(io::IO, e::ArgHelpRequested)
+    if !isempty(e.message)
+        print(io, e.message)
+    elseif !isempty(e.path) || !isempty(e.def.cmd_name) || !isempty(e.def.args) || !isempty(e.def.subcommands)
+        print(io, render_help(e.def; path=e.path))
+    end
+end
+#FILEPATH: ./core/parser_utils.jl
+
+function _split_multiflag(s::AbstractString)::Vector{String}
+    isascii(s) || _throw_arg_error("Invalid short option bundle (non-ASCII): $s")
+    out = String[]
+    max_i = lastindex(s)
+    i = 2
+    while i <= max_i
+        c = s[i]
+        if isascii(c) && isletter(c)
+            push!(out, "-$c")
+            i = nextind(s, i)
+        else
+            _throw_arg_error("Invalid short option bundle: $s")
+        end
+    end
+    out
+end
+
+function _split_arguments(args::Vector{String}; allow_short_bundle::Bool=true)::Vector{String}
+    out = String[]
+    passthrough = false
+    for arg in args
+        if passthrough
+            push!(out, arg)
+            continue
+        end
+        if arg == "--"
+            push!(out, arg)
+            passthrough = true
+            continue
+        end
+        if startswith(arg, "-")
+            parts = split(arg, '=', limit=2)
+            head = parts[1]
+            is_short_bundle = allow_short_bundle &&
+                              length(head) > 2 &&
+                              head[2] != '-' &&
+                              isascii(head[2]) &&
+                              isletter(head[2])
+
+            if is_short_bundle
+                if length(parts) == 2
+                    _throw_arg_error("Ambiguous short bundle with '=' is not allowed: $arg. Use '-a -b -c' or '--long=value'.")
+                end
+                if length(head) > 2 && isletter(head[2]) && (tryparse(Float64, head[3:end]) !== nothing)
+                    push!(out, head[1:2])
+                    push!(out, head[3:end])
+                else
+                    append!(out, _split_multiflag(head))
+                end
+            else
+                append!(out, String.(parts))
+            end
+        else
+            push!(out, arg)
+        end
+    end
+    out
+end
+
+function _has_help_flag_before_dd(args::Vector{String})::Bool
+    toks = _split_arguments(copy(args))
+    dd = findfirst(==("--"), toks)
+    if !isnothing(dd)
+        toks = toks[1:dd-1]
+    end
+    any(t -> t == "-h" || t == "--help", toks)
+end
+
+@inline _find_flag(args::Vector{String}, flags::Vector{String}) = findfirst(in(flags), args)
+
+@inline _looks_like_flag_token(s::String) = startswith(s, "-") && s != "-"
+@inline _looks_like_negative_number_token(s::String) = startswith(s, "-") && tryparse(Float64, s) !== nothing
+
+function _pop_flag!(args::Vector{String}, flags::Vector{String})::Bool
+    seen = false
+    i = 1
+    while i <= length(args)
+        if args[i] in flags
+            deleteat!(args, i)
+            seen = true
+        else
+            i += 1
+        end
+    end
+    return seen
+end
+
+
+function _pop_count!(args::Vector{String}, flag::String)::Int
+    n0 = length(args)
+    i = 1
+    while i <= length(args)
+        if args[i] == flag
+            deleteat!(args, i)
+        else
+            i += 1
+        end
+    end
+    n0 - length(args)
+end
+
+function _pop_value!(args::Vector{String}, flags::Vector{String}, allow_empty_option_value::Bool)::Union{Nothing,String}
+    idx = _find_flag(args, flags)
+    isnothing(idx) && return nothing
+    idx == length(args) && _throw_arg_error("Option $(args[idx]) requires a value")
+
+    val = args[idx+1]
+
+    if !allow_empty_option_value && isempty(val)
+        _throw_arg_error("Option $(args[idx]) does not allow empty value (use an explicit non-empty value)")
+    end
+
+    if _looks_like_flag_token(val) && !_looks_like_negative_number_token(val)
+        _throw_arg_error("Option $(args[idx]) requires a value, but got another option token: $(val)")
+    end
+
+    deleteat!(args, (idx, idx+1))
+    return val
+end
+
+function _pop_value_last!(args::Vector{String}, flags::Vector{String}, allow_empty_option_value::Bool)::Tuple{Union{Nothing,String},Bool}
+    vals = String[]
+    while true
+        v = _pop_value!(args, flags, allow_empty_option_value)
+        isnothing(v) && break
+        push!(vals, v)
+    end
+    isempty(vals) && return (nothing, false)
+    return (vals[end], true)
+end
+
+function _pop_value_once!(args::Vector{String}, flags::Vector{String}, name::String, allow_empty_option_value::Bool)::Tuple{Union{Nothing,String},Bool}
+    vals = _pop_multi_values!(args, flags, allow_empty_option_value)
+    if isempty(vals)
+        return (nothing, false)
+    elseif length(vals) == 1
+        return (vals[1], true)
+    else
+        _throw_arg_error("Option $(flags[end]) specified multiple times for $(name)")
+    end
+end
+
+function _pop_multi_values!(args::Vector{String}, flags::Vector{String}, allow_empty_option_value::Bool)::Vector{String}
+    vals = String[]
+    while true
+        v = _pop_value!(args, flags, allow_empty_option_value)
+        isnothing(v) && break
+        push!(vals, v)
+    end
+    vals
+end
+
+
+@inline _parse_value(::Type{String}, s::String, ::String) = s
+@inline _parse_value(::Type{Symbol}, s::String, ::String) = Symbol(s)
+@inline _parse_value(::Type{Bool}, s::String, name::String) = begin
+    x = lowercase(strip(s))
+    if x in ("1","true","t","yes","y","on")
+        true
+    elseif x in ("0","false","f","no","n","off")
+        false
+    else
+        _throw_arg_error("Invalid boolean value for $name: $s")
+    end
+end
+
+@inline function _parse_value(::Type{T}, s::String, name::String) where {T<:Integer}
+    try
+        return parse(T, s)
+    catch
+        _throw_arg_error("Invalid integer value for $name: $s")
+    end
+end
+
+@inline function _parse_value(::Type{T}, s::String, name::String) where {T<:AbstractFloat}
+    try
+        return parse(T, s)
+    catch
+        _throw_arg_error("Invalid floating value for $name: $s")
+    end
+end
+
+@inline function _parse_value(::Type{T}, s::String, name::String) where {T}
+    if applicable(Base.tryparse, T, s)
+        tp = Base.tryparse(T, s)
+        tp !== nothing && return tp
+    end
+
+    parse_err = nothing
+    if applicable(parse, T, s)
+        try
+            return parse(T, s)
+        catch e
+            parse_err = e
+        end
+    end
+
+    try
+        return T(s)
+    catch e
+        if parse_err === nothing
+            _throw_arg_error("Invalid value for $name (type $(T)): $s ($(sprint(showerror, e)))")
+        else
+            _throw_arg_error("Invalid value for $name (type $(T)): $s (parse: $(sprint(showerror, parse_err)); ctor: $(sprint(showerror, e)))")
+        end
+    end
+end
+
+
+@inline function _convert_default(::Type{T}, v, name::String) where {T}
+    try
+        return v isa T ? v : convert(T, v)
+    catch e
+        _throw_arg_error("Invalid default value for $name: expected $T, got $(typeof(v)) ($(sprint(showerror, e)))")
+    end
+end
+
+function _locate_subcommand(
+    argv::Vector{String},
+    sub_names::Vector{String},
+    flags_need_value::Set{String},
+    flags_no_value::Set{String};
+    strict_unknown_option::Bool=true
+)::Tuple{Union{Nothing,String},Int}
+    isempty(sub_names) && return (nothing, 0)
+
+    expecting_value = false
+
+    i = 1
+    while i <= length(argv)
+        tok = argv[i]
+
+        if tok == "--"
+            return (nothing, 0)
+        end
+
+        if expecting_value
+            expecting_value = false
+            i += 1
+            continue
+        end
+
+        if startswith(tok, "-") && tok != "-"
+            parts = split(tok, '=', limit=2)
+            head = parts[1]
+            has_inline_value = (length(parts) == 2)
+
+            if head in flags_need_value
+                if !has_inline_value
+                    expecting_value = true
+                end
+                i += 1
+                continue
+            elseif head in flags_no_value
+                i += 1
+                continue
+            else
+                if startswith(head, "-") && !startswith(head, "--") && length(head) > 2
+                    local expanded = _split_multiflag(head)
+                    local tail_requires_value = false
+                    for (k, f) in enumerate(expanded)
+                        if f in flags_need_value
+                            if k != length(expanded)
+                                _throw_arg_error("Invalid short option bundle: option requiring value must be last in bundle: $tok")
+                            end
+                            tail_requires_value = true
+                        elseif !(f in flags_no_value)
+                            if strict_unknown_option
+                                return (nothing, 0)
+                            end
+                        end
+                    end
+                    if tail_requires_value
+                        expecting_value = true
+                    end
+                    i += 1
+                    continue
+                end
+
+                if strict_unknown_option
+                    return (nothing, 0)
+                end
+
+                i += 1
+                continue
+            end
+        else
+            if tok in sub_names
+                return (tok, i)
+            else
+                return (nothing, 0)
+            end
+        end
+    end
+
+    return (nothing, 0)
+end
+
+function _reject_unknown_option_tokens(args::Vector{String})
+    i = 1
+    while i <= length(args)
+        tok = args[i]
+        if tok == "--"
+            return
+        end
+        if _looks_like_flag_token(tok) && !_looks_like_negative_number_token(tok)
+            _throw_arg_error("Unknown or unexpected option: $tok")
+        end
+        i += 1
+    end
+end
+
+function _build_main_flag_sets(argdefs::Vector{ArgDef})
+    flags_need_value = Set{String}()
+    flags_no_value = Set{String}()
+
+    for a in argdefs
+        if a.kind in (AK_OPTION, AK_OPTION_MULTI)
+            for f in a.flags
+                push!(flags_need_value, f)
+            end
+        elseif a.kind in (AK_FLAG, AK_COUNT)
+            for f in a.flags
+                push!(flags_no_value, f)
+            end
+        end
+    end
+
+    return flags_need_value, flags_no_value
+end
+
+function _extract_global_options(
+    argv::Vector{String},
+    sub_idx::Int,
+    flags_need_value::Set{String},
+    flags_no_value::Set{String}
+)::Tuple{Vector{String},Vector{String}}
+    main_tokens = String[]
+    sub_tokens = String[]
+
+    i = 1
+    passthrough = false
+
+    while i <= length(argv)
+        tok = argv[i]
+
+        if i == sub_idx
+            i += 1
+            continue
+        end
+
+        if passthrough
+            push!(sub_tokens, tok)
+            i += 1
+            continue
+        end
+
+        if tok == "--"
+            push!(sub_tokens, tok)
+            passthrough = true
+            i += 1
+            continue
+        end
+
+        if startswith(tok, "-") && tok != "-"
+            parts = split(tok, '=', limit=2)
+            head = parts[1]
+            has_inline_value = (length(parts) == 2)
+
+            if head in flags_need_value
+                push!(main_tokens, tok)
+                if !has_inline_value
+                    i == length(argv) && _throw_arg_error("Option $tok requires a value")
+                    nxt = argv[i+1]
+                    if nxt == "--"
+                        _throw_arg_error("Option $tok requires a value")
+                    end
+                    push!(main_tokens, nxt)
+                    i += 2
+                else
+                    i += 1
+                end
+                continue
+            elseif head in flags_no_value
+                push!(main_tokens, tok)
+                i += 1
+                continue
+            elseif startswith(head, "-") && !startswith(head, "--") && length(head) > 2
+                expanded = _split_multiflag(head)
+                local all_known = true
+                local tail_requires_value = false
+
+                for (k, f) in enumerate(expanded)
+                    if f in flags_need_value
+                        if k != length(expanded)
+                            _throw_arg_error("Invalid short option bundle: option requiring value must be last in bundle: $tok")
+                        end
+                        tail_requires_value = true
+                    elseif f in flags_no_value
+                    else
+                        all_known = false
+                        break
+                    end
+                end
+
+                if all_known
+                    append!(main_tokens, expanded)
+                    if tail_requires_value
+                        i == length(argv) && _throw_arg_error("Option $(expanded[end]) requires a value")
+                        nxt = argv[i+1]
+                        if nxt == "--"
+                            _throw_arg_error("Option $(expanded[end]) requires a value")
+                        end
+                        push!(main_tokens, nxt)
+                        i += 2
+                    else
+                        i += 1
+                    end
+                    continue
+                end
+            end
+        end
+
+        push!(sub_tokens, tok)
+        i += 1
+    end
+
+    return main_tokens, sub_tokens
+end
+#FILEPATH: ./core/types.jl
+Base.@kwdef struct ArgHelpTemplate{H,U,D,P,O,S,E}
+    header::H
+    section_usage::U
+    section_description::D
+    section_positionals::P
+    section_options::O
+    section_subcommands::S
+    section_epilog::E
+end
+
+@enum ArgKind begin
+    AK_FLAG
+    AK_COUNT
+    AK_OPTION
+    AK_OPTION_MULTI
+    AK_POS_REQUIRED
+    AK_POS_DEFAULT
+    AK_POS_OPTIONAL
+    AK_POS_REST
+end
+
+
+
+Base.@kwdef struct ArgDef
+    kind::ArgKind
+    name::Symbol
+    T::Any
+    flags::Vector{String} = String[]
+    default::Any = nothing
+    help::String = ""
+    help_name::String = ""
+    required::Bool = false
+end
+
+Base.@kwdef struct ArgRequiresDef
+    anchor::Symbol
+    targets::Vector{Symbol} = Symbol[]
+end
+
+Base.@kwdef struct ArgConflictsDef
+    anchor::Symbol
+    targets::Vector{Symbol} = Symbol[]
+end
+
+
+Base.@kwdef struct SubcommandDef
+    name::String
+    description::String = ""
+    usage::String = ""
+    epilog::String = ""
+    body::Union{Nothing,Expr} = nothing
+    args::Vector{ArgDef} = ArgDef[]
+    allow_extra::Bool = false
+    mutual_exclusion_groups::Vector{Vector{Symbol}} = Vector{Vector{Symbol}}()
+    mutual_inclusion_groups::Vector{Vector{Symbol}} = Vector{Vector{Symbol}}()
+    arg_requires::Vector{ArgRequiresDef} = ArgRequiresDef[]
+    arg_conflicts::Vector{ArgConflictsDef} = ArgConflictsDef[]
+end
+
+
+Base.@kwdef struct CliDef
+    cmd_name::String = ""
+    usage::String = ""
+    description::String = ""
+    epilog::String = ""
+    args::Vector{ArgDef} = ArgDef[]
+    subcommands::Vector{SubcommandDef} = SubcommandDef[]
+    allow_extra::Bool = false
+    mutual_exclusion_groups::Vector{Vector{Symbol}} = Vector{Vector{Symbol}}()
+    mutual_inclusion_groups::Vector{Vector{Symbol}} = Vector{Vector{Symbol}}()
+    arg_requires::Vector{ArgRequiresDef} = ArgRequiresDef[]
+    arg_conflicts::Vector{ArgConflictsDef} = ArgConflictsDef[]
+end
+
+
+struct ArgParseError <: Exception
+    message::String
+end
+
+
+struct ArgHelpRequested <: Exception
+    def::CliDef
+    path::String
+    message::String
+end
+ArgHelpRequested(def::CliDef, path::String="") = ArgHelpRequested(def, path, "")
+ArgHelpRequested(message::String) = ArgHelpRequested(CliDef(), "", message)
+
+
+
+#FILEPATH: ./macros/cmd_main.jl
+macro CMD_MAIN(struct_name, block)
+    if !(block isa Expr && block.head == :block)
+        throw(ArgumentError("@CMD_MAIN expects a `begin ... end` block as second argument"))
+    end
+
+    if !(struct_name isa Symbol)
+        throw(ArgumentError("@CMD_MAIN first argument must be a plain type name Symbol (e.g. MyType), dotted names are not supported"))
+    end
+
+    nonmacro = _nonmacro_nodes(block)
+    if !isempty(nonmacro)
+        throw(ArgumentError("Only DSL macros are allowed inside @CMD_MAIN block; found non-macro statement(s)"))
+    end
+
+    usage = ""
+    desc = ""
+    epilog = ""
+    allow_extra = false
+
+    seen_usage = false
+    seen_desc = false
+    seen_epilog = false
+    seen_allow = false
+
+    main_nodes = Expr[]
+    normalized_sub_nodes = NormalizedSubCmd[]
+
+    for node in _getmacrocalls(block)
+        m = _getmacroname(node)
+
+        if m == SYM_USAGE
+            seen_usage && throw(ArgumentError("@CMD_USAGE is duplicated in @CMD_MAIN"))
+            length(node.args) >= 3 || throw(ArgumentError("@CMD_USAGE expects one String literal"))
+            node.args[3] isa String || throw(ArgumentError("@CMD_USAGE expects a String literal"))
+            usage = node.args[3]
+            seen_usage = true
+
+        elseif m == SYM_DESC
+            seen_desc && throw(ArgumentError("@CMD_DESC is duplicated in @CMD_MAIN"))
+            length(node.args) >= 3 || throw(ArgumentError("@CMD_DESC expects one String literal"))
+            node.args[3] isa String || throw(ArgumentError("@CMD_DESC expects a String literal"))
+            desc = node.args[3]
+            seen_desc = true
+
+        elseif m == SYM_EPILOG
+            seen_epilog && throw(ArgumentError("@CMD_EPILOG is duplicated in @CMD_MAIN"))
+            length(node.args) >= 3 || throw(ArgumentError("@CMD_EPILOG expects one String literal"))
+            node.args[3] isa String || throw(ArgumentError("@CMD_EPILOG expects a String literal"))
+            epilog = node.args[3]
+            seen_epilog = true
+
+        elseif m == SYM_ALLOW
+            seen_allow && throw(ArgumentError("@ALLOW_EXTRA is duplicated in @CMD_MAIN"))
+            allow_extra = true
+            seen_allow = true
+
+        elseif m == SYM_SUB
+            length(node.args) >= 4 || throw(ArgumentError("@CMD_SUB expects \"name\" begin ... end or \"name\" \"desc\" begin ... end"))
+
+            sub_name = node.args[3]
+            sub_name isa String || throw(ArgumentError("@CMD_SUB name must be a String literal"))
+            startswith(sub_name, "-") && throw(ArgumentError("@CMD_SUB name must not start with '-'"))
+
+            sub_desc = ""
+            sub_usage = ""
+            sub_epilog = ""
+            sub_allow_extra = false
+            sub_block = nothing
+
+            if length(node.args) == 4
+                sub_block = node.args[4]
+            elseif length(node.args) == 5
+                if node.args[4] isa String
+                    sub_desc = node.args[4]
+                    sub_block = node.args[5]
+                else
+                    throw(ArgumentError("@CMD_SUB second argument must be a String description when 5 arguments are used"))
+                end
+            else
+                throw(ArgumentError("@CMD_SUB expects \"name\" begin ... end or \"name\" \"desc\" begin ... end"))
+            end
+
+            (sub_block isa Expr && sub_block.head == :block) || throw(ArgumentError("@CMD_SUB body must be a begin...end block"))
+
+            nonmacro_sub = _nonmacro_nodes(sub_block)
+            if !isempty(nonmacro_sub)
+                throw(ArgumentError("Only DSL macros are allowed inside @CMD_SUB block; found non-macro statement(s)"))
+            end
+
+            seen_sub_desc = !isempty(sub_desc)
+            seen_sub_usage = false
+            seen_sub_epilog = false
+            seen_sub_allow = false
+
+            for n in _getmacrocalls(sub_block)
+                mm = _getmacroname(n)
+                if mm == SYM_DESC
+                    seen_sub_desc && throw(ArgumentError("@CMD_DESC is duplicated in @CMD_SUB \"$sub_name\""))
+                    length(n.args) >= 3 || throw(ArgumentError("@CMD_DESC in @CMD_SUB expects one String literal"))
+                    n.args[3] isa String || throw(ArgumentError("@CMD_DESC in @CMD_SUB expects a String literal"))
+                    sub_desc = n.args[3]
+                    seen_sub_desc = true
+
+                elseif mm == SYM_USAGE
+                    seen_sub_usage && throw(ArgumentError("@CMD_USAGE is duplicated in @CMD_SUB \"$sub_name\""))
+                    length(n.args) >= 3 || throw(ArgumentError("@CMD_USAGE in @CMD_SUB expects one String literal"))
+                    n.args[3] isa String || throw(ArgumentError("@CMD_USAGE in @CMD_SUB expects a String literal"))
+                    sub_usage = n.args[3]
+                    seen_sub_usage = true
+
+                elseif mm == SYM_EPILOG
+                    seen_sub_epilog && throw(ArgumentError("@CMD_EPILOG is duplicated in @CMD_SUB \"$sub_name\""))
+                    length(n.args) >= 3 || throw(ArgumentError("@CMD_EPILOG in @CMD_SUB expects one String literal"))
+                    n.args[3] isa String || throw(ArgumentError("@CMD_EPILOG in @CMD_SUB expects a String literal"))
+                    sub_epilog = n.args[3]
+                    seen_sub_epilog = true
+
+                elseif mm == SYM_ALLOW
+                    seen_sub_allow && throw(ArgumentError("@ALLOW_EXTRA is duplicated in @CMD_SUB \"$sub_name\""))
+                    sub_allow_extra = true
+                    seen_sub_allow = true
+                end
+            end
+
+            if any(s.name == sub_name for s in normalized_sub_nodes)
+                throw(ArgumentError("duplicate subcommand name: $(sub_name)"))
+            end
+
+            push!(normalized_sub_nodes, NormalizedSubCmd(
+                name=sub_name,
+                description=sub_desc,
+                usage=sub_usage,
+                epilog=sub_epilog,
+                block=sub_block,
+                allow_extra=sub_allow_extra
+            ))
+        else
+            push!(main_nodes, node)
+        end
+    end
+
+    main_block = Expr(:block, main_nodes...)
+    fields, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr, gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs = _compile_cmd_block(main_block)
+
+    ctor_args = Symbol[f.args[1] for f in fields]
+
+    sub_def_items, sub_parser_exprs, dispatch_branches, sub_help_branches, sub_names =
+        _build_subcommand_bundle(normalized_sub_nodes, struct_name, ctor_args)
+
+    _build_main_parser_expr(
+        struct_name, usage, desc, epilog, allow_extra,
+        fields, ctor_args, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr,
+        gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs,
+        sub_def_items, sub_parser_exprs, dispatch_branches, sub_help_branches, sub_names
+    )
+end
+#FILEPATH: ./macros/common.jl
+const _RC = @__MODULE__
+_gr(s::Symbol) = GlobalRef(_RC, s)
+
+function _compile_group_exclusive_checks(group_defs::Vector{Vector{Symbol}})
+    checks = Expr[]
+    for grp in group_defs
+        isempty(grp) && continue
+        grp_names = [string(s) for s in grp]
+
+        detail_blocks = Expr[]
+        for (i, s) in enumerate(grp)
+            push!(detail_blocks, quote
+                local _c = get(_provided_count_map, $(QuoteNode(s)), 0)
+                if _c > 0
+                    _gx_count += 1
+                    push!(_gx_details, $(grp_names[i]) * " x" * string(_c))
+                end
+            end)
+        end
+
+        push!(checks, quote
+            local _gx_count = 0
+            local _gx_details = String[]
+            $(detail_blocks...)
+            if _gx_count > 1
+                $(_gr(:_throw_arg_error))("Mutually exclusive arguments provided together: " * join($(grp_names), ", ") * ". Details: " * join(_gx_details, "; "))
+            end
+        end)
+    end
+    return checks
+end
+
+function _compile_group_inclusion_checks(group_defs::Vector{Vector{Symbol}})
+    checks = Expr[]
+    for grp in group_defs
+        isempty(grp) && continue
+        grp_names = [string(s) for s in grp]
+
+        detail_blocks = Expr[]
+        for (i, s) in enumerate(grp)
+            push!(detail_blocks, quote
+                local _c = get(_provided_count_map, $(QuoteNode(s)), 0)
+                if _c > 0
+                    _gi_count += 1
+                    push!(_gi_details, $(grp_names[i]) * " x" * string(_c))
+                end
+            end)
+        end
+
+        push!(checks, quote
+            local _gi_count = 0
+            local _gi_details = String[]
+            $(detail_blocks...)
+            if _gi_count < 1
+                $(_gr(:_throw_arg_error))("At least one of the following arguments must be provided: " * join($(grp_names), ", "))
+            end
+        end)
+    end
+    return checks
+end
+
+function _compile_arg_requires_checks(req_defs)
+    checks = Expr[]
+    for rd in req_defs
+        anchor = rd.anchor
+        targets = rd.targets
+        isempty(targets) && continue
+
+        target_names = [string(s) for s in targets]
+
+        detail_blocks = Expr[]
+        for (i, s) in enumerate(targets)
+            push!(detail_blocks, quote
+                local _c = get(_provided_count_map, $(QuoteNode(s)), 0)
+                if _c > 0
+                    _ar_target_count += 1
+                    push!(_ar_target_details, $(target_names[i]) * " x" * string(_c))
+                end
+            end)
+        end
+
+        push!(checks, quote
+            local _ar_anchor_count = get(_provided_count_map, $(QuoteNode(anchor)), 0)
+            if _ar_anchor_count > 0
+                local _ar_target_count = 0
+                local _ar_target_details = String[]
+                $(detail_blocks...)
+                if _ar_target_count < 1
+                    $(_gr(:_throw_arg_error))(
+                        "Argument " * $(string(anchor)) * " requires at least one of: " * join($(target_names), ", ")
+                    )
+                end
+            end
+        end)
+    end
+    return checks
+end
+
+function _compile_arg_conflicts_checks(conf_defs)
+    checks = Expr[]
+    for cd in conf_defs
+        anchor = cd.anchor
+        targets = cd.targets
+        isempty(targets) && continue
+
+        target_names = [string(s) for s in targets]
+
+        detail_blocks = Expr[]
+        for (i, s) in enumerate(targets)
+            push!(detail_blocks, quote
+                local _c = get(_provided_count_map, $(QuoteNode(s)), 0)
+                if _c > 0
+                    push!(_ac_hits, $(target_names[i]) * " x" * string(_c))
+                end
+            end)
+        end
+
+        push!(checks, quote
+            local _ac_anchor_count = get(_provided_count_map, $(QuoteNode(anchor)), 0)
+            if _ac_anchor_count > 0
+                local _ac_hits = String[]
+                $(detail_blocks...)
+                if !isempty(_ac_hits)
+                    $(_gr(:_throw_arg_error))(
+                        "Argument " * $(string(anchor)) * " conflicts with: " * join(_ac_hits, ", ")
+                    )
+                end
+            end
+        end)
+    end
+    return checks
+end
+
+function _compile_leftover_policy(allow_extra::Bool)
+    if allow_extra
+        return :(nothing)
+    else
+        return quote
+            if !isempty(_args)
+                local _hint = any($(_gr(:_looks_like_negative_number_token)), _args) ? " Hint: pass positional negative numbers after '--' (e.g. -- -1)." : ""
+                $(_gr(:_throw_arg_error))("Unknown or unexpected arguments: " * join(_args, " ") * _hint)
+            end
+        end
+    end
+end
+#FILEPATH: ./macros/compiler.jl
+function _compile_cmd_block(block::Expr)
+    fields = Expr[]
+    option_parse_stmts = Expr[]
+    positional_parse_stmts = Expr[]
+    post_stmts = Expr[]
+    group_defs_excl = Vector{Vector{Symbol}}()
+    group_defs_incl = Vector{Vector{Symbol}}()
+    arg_requires_defs = ArgRequiresDef[]
+    arg_conflicts_defs = ArgConflictsDef[]
+    argdefs_expr = Expr[]
+
+    declared_names = Set{Symbol}()
+    name_kind = Dict{Symbol,ArgKind}()
+    seen_pos_rest = false
+
+    flag_owner = Dict{String,Symbol}()
+
+    local function _expect_name_symbol(x, macro_name::String, role::String)::Symbol
+        if x isa Symbol
+            return x
+        elseif x isa QuoteNode && x.value isa Symbol
+            return x.value
+        elseif x isa Expr
+            if x.head == :quote && length(x.args) == 1
+                q = x.args[1]
+                if q isa Symbol
+                    return q
+                end
+            elseif x.head == :global && length(x.args) == 1 && x.args[1] isa Symbol
+                return x.args[1]
+            elseif x.head == :local && length(x.args) == 1 && x.args[1] isa Symbol
+                return x.args[1]
+            elseif x.head == :const && length(x.args) == 1 && x.args[1] isa Symbol
+                return x.args[1]
+            end
+        end
+        throw(ArgumentError("$(macro_name) $(role) must be a Symbol identifier; got $(repr(x))"))
+    end
+
+    local function _extract_name_and_rest(node::Expr, name_idx::Int, macro_name::String, role::String)
+        x = node.args[name_idx]
+        tail = Any[node.args[i] for i in (name_idx + 1):length(node.args)]
+
+        if x isa Symbol
+            return x, tail
+        elseif x isa QuoteNode && x.value isa Symbol
+            return x.value, tail
+        elseif x isa Expr
+            if x.head == :quote && length(x.args) == 1 && x.args[1] isa Symbol
+                return x.args[1], tail
+            elseif x.head in (:global, :local, :const) && length(x.args) == 1
+                a = x.args[1]
+                if a isa Symbol
+                    return a, tail
+                elseif a isa String || (a isa QuoteNode && a.value isa String)
+                    return Symbol(String(x.head)), Any[a, tail...]
+                end
+            end
+        end
+
+        throw(ArgumentError("$(macro_name) $(role) must be a Symbol identifier; got $(repr(x))"))
+    end
+
+    local function _validate_flag!(f::String, macro_name::String)
+        isempty(strip(f)) && throw(ArgumentError("$(macro_name) flag must not be empty"))
+        occursin(r"\s", f) && throw(ArgumentError("$(macro_name) flag must not contain whitespace: $(repr(f))"))
+        (startswith(f, "-") && f != "-" && f != "--") || throw(ArgumentError("$(macro_name) invalid flag: $(f)"))
+        if startswith(f, "-") && !startswith(f, "--") && length(f) != 2
+            throw(ArgumentError("$(macro_name) short flag must be exactly one character: $(f)"))
+        end
+    end
+
+    local function _register_flags!(flags::Vector{String}, owner::Symbol, macro_name::String)
+        for f in flags
+            _validate_flag!(f, macro_name)
+            if haskey(flag_owner, f)
+                throw(ArgumentError("duplicate flag detected: $(f) used by $(flag_owner[f]) and $(owner)"))
+            end
+            flag_owner[f] = owner
+        end
+    end
+
+    local function _extract_flags!(rest::Vector{Any}, macro_name::String)
+        flags = String[]
+        for x in rest
+            if x isa String
+                push!(flags, x)
+            elseif x isa QuoteNode && x.value isa String
+                push!(flags, x.value)
+            else
+                throw(ArgumentError("$(macro_name) flags must be String literals; got $(repr(x))"))
+            end
+        end
+        return flags
+    end
+
+    for node in _getmacrocalls(block)
+        m = _getmacroname(node)
+        m === nothing && throw(ArgumentError("unsupported DSL macro expression"))
+
+        if m == SYM_GROUP
+            syms = Symbol[]
+            for i in 3:length(node.args)
+                push!(syms, _expect_name_symbol(node.args[i], "@GROUP_EXCL", "argument name"))
+            end
+            length(syms) < 2 && throw(ArgumentError("@GROUP_EXCL requires at least two argument names"))
+            length(unique(syms)) != length(syms) && throw(ArgumentError("@GROUP_EXCL contains duplicate argument names"))
+            push!(group_defs_excl, syms)
+
+        elseif m == SYM_GROUP_INCL
+            syms = Symbol[]
+            for i in 3:length(node.args)
+                push!(syms, _expect_name_symbol(node.args[i], "@GROUP_INCL", "argument name"))
+            end
+            length(syms) < 2 && throw(ArgumentError("@GROUP_INCL requires at least two argument names"))
+            length(unique(syms)) != length(syms) && throw(ArgumentError("@GROUP_INCL contains duplicate argument names"))
+            push!(group_defs_incl, syms)
+
+        elseif m == SYM_ARG_REQUIRES
+            anchor = _expect_name_symbol(node.args[3], "@ARG_REQUIRES", "anchor argument")
+            targets = Symbol[]
+            for i in 4:length(node.args)
+                push!(targets, _expect_name_symbol(node.args[i], "@ARG_REQUIRES", "target argument"))
+            end
+            isempty(targets) && throw(ArgumentError("@ARG_REQUIRES requires at least one target argument"))
+            anchor in targets && throw(ArgumentError("@ARG_REQUIRES anchor argument must not appear in targets"))
+            length(unique(targets)) != length(targets) && throw(ArgumentError("@ARG_REQUIRES contains duplicate target arguments"))
+            push!(arg_requires_defs, ArgRequiresDef(anchor=anchor, targets=targets))
+
+        elseif m == SYM_ARG_CONFLICTS
+            anchor = _expect_name_symbol(node.args[3], "@ARG_CONFLICTS", "anchor argument")
+            targets = Symbol[]
+            for i in 4:length(node.args)
+                push!(targets, _expect_name_symbol(node.args[i], "@ARG_CONFLICTS", "target argument"))
+            end
+            isempty(targets) && throw(ArgumentError("@ARG_CONFLICTS requires at least one target argument"))
+            anchor in targets && throw(ArgumentError("@ARG_CONFLICTS anchor argument must not appear in targets"))
+            length(unique(targets)) != length(targets) && throw(ArgumentError("@ARG_CONFLICTS contains duplicate target arguments"))
+            push!(arg_conflicts_defs, ArgConflictsDef(anchor=anchor, targets=targets))
+
+        elseif m == SYM_REQ
+            T = node.args[3]
+            nm, rest = _extract_name_and_rest(node, 4, "@ARG_REQ", "argument name")
+            nm in declared_names && throw(ArgumentError("duplicate argument name: $(nm)"))
+            help, help_name = _extract_help_meta!(rest; allow_help_name=true, macro_name="@ARG_REQ")
+            flags = _extract_flags!(rest, "@ARG_REQ")
+            isempty(flags) && throw(ArgumentError("@ARG_REQ requires at least one flag"))
+            _register_flags!(flags, nm, "@ARG_REQ")
+
+            provided_sym = Symbol("_provided_", nm)
+            tmp_sym = Symbol("_tmp_", nm)
+
+            push!(declared_names, nm)
+            name_kind[nm] = AK_OPTION
+            push!(fields, :($(nm)::$(T)))
+            push!(option_parse_stmts, quote
+                local $(tmp_sym) = $(_gr(:_pop_value_once!))(_opt_args, $(flags), $(string(nm)), allow_empty_option_value)
+                local _raw = $(tmp_sym)[1]
+                local $(provided_sym) = $(tmp_sym)[2]
+                isnothing(_raw) && $(_gr(:_throw_arg_error))("Missing required option $( $(flags[end]) )")
+                local $(nm)::$(T) = $(_gr(:_parse_value))($(T), _raw, $(string(nm)))
+            end)
+            push!(argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_OPTION)), name=$(QuoteNode(nm)), T=$(T), flags=$(flags), required=true, help=$(help), help_name=$(help_name))))
+
+        elseif m == SYM_DEF
+            T = node.args[3]
+            dv = node.args[4]
+            nm, rest = _extract_name_and_rest(node, 5, "@ARG_DEF", "argument name")
+            nm in declared_names && throw(ArgumentError("duplicate argument name: $(nm)"))
+            help, help_name = _extract_help_meta!(rest; allow_help_name=true, macro_name="@ARG_DEF")
+            flags = _extract_flags!(rest, "@ARG_DEF")
+            isempty(flags) && throw(ArgumentError("@ARG_DEF requires at least one flag"))
+            _register_flags!(flags, nm, "@ARG_DEF")
+
+            provided_sym = Symbol("_provided_", nm)
+            tmp_sym = Symbol("_tmp_", nm)
+
+            push!(declared_names, nm)
+            name_kind[nm] = AK_OPTION
+            push!(fields, :($(nm)::$(T)))
+            push!(option_parse_stmts, quote
+                local $(tmp_sym) = $(_gr(:_pop_value_once!))(_opt_args, $(flags), $(string(nm)), allow_empty_option_value)
+                local _raw = $(tmp_sym)[1]
+                local $(provided_sym) = $(tmp_sym)[2]
+                local $(nm)::$(T) = isnothing(_raw) ? $(_gr(:_convert_default))($(T), $(dv), $(string(nm))) : $(_gr(:_parse_value))($(T), _raw, $(string(nm)))
+            end)
+            push!(argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_OPTION)), name=$(QuoteNode(nm)), T=$(T), flags=$(flags), default=$(dv), required=false, help=$(help), help_name=$(help_name))))
+
+        elseif m == SYM_OPT
+            T = node.args[3]
+            nm, rest = _extract_name_and_rest(node, 4, "@ARG_OPT", "argument name")
+            nm in declared_names && throw(ArgumentError("duplicate argument name: $(nm)"))
+            help, help_name = _extract_help_meta!(rest; allow_help_name=true, macro_name="@ARG_OPT")
+            flags = _extract_flags!(rest, "@ARG_OPT")
+            isempty(flags) && throw(ArgumentError("@ARG_OPT requires at least one flag"))
+            _register_flags!(flags, nm, "@ARG_OPT")
+
+            provided_sym = Symbol("_provided_", nm)
+            tmp_sym = Symbol("_tmp_", nm)
+
+            push!(declared_names, nm)
+            name_kind[nm] = AK_OPTION
+            push!(fields, :($(nm)::Union{$(T),Nothing}))
+            push!(option_parse_stmts, quote
+                local $(tmp_sym) = $(_gr(:_pop_value_once!))(_opt_args, $(flags), $(string(nm)), allow_empty_option_value)
+                local _raw = $(tmp_sym)[1]
+                local $(provided_sym) = $(tmp_sym)[2]
+                local $(nm)::Union{$(T),Nothing} = isnothing(_raw) ? nothing : $(_gr(:_parse_value))($(T), _raw, $(string(nm)))
+            end)
+            push!(argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_OPTION)), name=$(QuoteNode(nm)), T=$(T), flags=$(flags), required=false, help=$(help), help_name=$(help_name))))
+
+        elseif m == SYM_FLAG
+            nm, rest = _extract_name_and_rest(node, 3, "@ARG_FLAG", "argument name")
+            nm in declared_names && throw(ArgumentError("duplicate argument name: $(nm)"))
+            help, help_name = _extract_help_meta!(rest; allow_help_name=true, macro_name="@ARG_FLAG")
+            flags = _extract_flags!(rest, "@ARG_FLAG")
+            isempty(flags) && throw(ArgumentError("@ARG_FLAG requires at least one flag"))
+            _register_flags!(flags, nm, "@ARG_FLAG")
+
+            flag_before_sym = Symbol("_flag_before_", nm)
+            provided_sym = Symbol("_provided_", nm)
+
+            push!(declared_names, nm)
+            name_kind[nm] = AK_FLAG
+            push!(fields, :($(nm)::Bool))
+            push!(option_parse_stmts, quote
+                local $(flag_before_sym) = length(_opt_args)
+                local $(nm)::Bool = $(_gr(:_pop_flag!))(_opt_args, $(flags))
+                local $(provided_sym) = ($(flag_before_sym) != length(_opt_args))
+            end)
+            push!(argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_FLAG)), name=$(QuoteNode(nm)), T=Bool, flags=$(flags), help=$(help), help_name=$(help_name))))
+
+        elseif m == SYM_COUNT
+            nm, rest = _extract_name_and_rest(node, 3, "@ARG_COUNT", "argument name")
+            nm in declared_names && throw(ArgumentError("duplicate argument name: $(nm)"))
+            help, help_name = _extract_help_meta!(rest; allow_help_name=true, macro_name="@ARG_COUNT")
+            flags = _extract_flags!(rest, "@ARG_COUNT")
+            isempty(flags) && throw(ArgumentError("@ARG_COUNT requires at least one flag"))
+            _register_flags!(flags, nm, "@ARG_COUNT")
+
+            push!(declared_names, nm)
+            name_kind[nm] = AK_COUNT
+            push!(fields, :($(nm)::Int))
+
+            cnt_sym = Symbol("_cnt_", nm)
+            provided_sym = Symbol("_provided_", nm)
+            count_stmts = [:( $cnt_sym += $(_gr(:_pop_count!))(_opt_args, $(f)) ) for f in flags]
+
+            push!(option_parse_stmts, quote
+                local $cnt_sym = 0
+                $(count_stmts...)
+                local $(nm)::Int = $cnt_sym
+                local $provided_sym = ($(nm) > 0)
+            end)
+
+            push!(argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_COUNT)), name=$(QuoteNode(nm)), T=Int, flags=$(flags), help=$(help), help_name=$(help_name))))
+
+        elseif m == SYM_MULTI
+            T = node.args[3]
+            nm, rest = _extract_name_and_rest(node, 4, "@ARG_MULTI", "argument name")
+            nm in declared_names && throw(ArgumentError("duplicate argument name: $(nm)"))
+            help, help_name = _extract_help_meta!(rest; allow_help_name=true, macro_name="@ARG_MULTI")
+            flags = _extract_flags!(rest, "@ARG_MULTI")
+            isempty(flags) && throw(ArgumentError("@ARG_MULTI requires at least one flag"))
+            _register_flags!(flags, nm, "@ARG_MULTI")
+
+            provided_sym = Symbol("_provided_", nm)
+
+            push!(declared_names, nm)
+            name_kind[nm] = AK_OPTION_MULTI
+            push!(fields, :($(nm)::Vector{$(T)}))
+            push!(option_parse_stmts, quote
+                local _vals = $(_gr(:_pop_multi_values!))(_opt_args, $(flags), allow_empty_option_value)
+                local $(provided_sym) = !isempty(_vals)
+                local $(nm)::Vector{$(T)} = [ $(_gr(:_parse_value))($(T), v, $(string(nm))) for v in _vals ]
+            end)
+            push!(argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_OPTION_MULTI)), name=$(QuoteNode(nm)), T=$(T), flags=$(flags), help=$(help), help_name=$(help_name))))
+
+        elseif m == SYM_POS_REQ
+            T = node.args[3]
+            nm, rest = _extract_name_and_rest(node, 4, "@POS_REQ", "argument name")
+            nm in declared_names && throw(ArgumentError("duplicate argument name: $(nm)"))
+            help, help_name = _extract_help_meta!(rest; allow_help_name=true, macro_name="@POS_REQ")
+            isempty(rest) || throw(ArgumentError("@POS_REQ supports only keyword metadata: help=\"...\", help_name=\"...\""))
+
+            provided_sym = Symbol("_provided_", nm)
+
+            seen_pos_rest && throw(ArgumentError("@POS_REST must be the last positional declaration"))
+            push!(declared_names, nm)
+            name_kind[nm] = AK_POS_REQUIRED
+            push!(fields, :($(nm)::$(T)))
+            push!(positional_parse_stmts, quote
+                isempty(_args) && $(_gr(:_throw_arg_error))("Missing required positional $( $(string(nm)) )")
+                local $(provided_sym) = true
+                local $(nm)::$(T) = $(_gr(:_parse_value))($(T), popfirst!(_args), $(string(nm)))
+            end)
+            push!(argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_POS_REQUIRED)), name=$(QuoteNode(nm)), T=$(T), required=true, help=$(help), help_name=$(help_name))))
+
+        elseif m == SYM_POS_DEF
+            T = node.args[3]
+            dv = node.args[4]
+            nm, rest = _extract_name_and_rest(node, 5, "@POS_DEF", "argument name")
+            nm in declared_names && throw(ArgumentError("duplicate argument name: $(nm)"))
+            help, help_name = _extract_help_meta!(rest; allow_help_name=true, macro_name="@POS_DEF")
+            isempty(rest) || throw(ArgumentError("@POS_DEF supports only keyword metadata: help=\"...\", help_name=\"...\""))
+
+            provided_sym = Symbol("_provided_", nm)
+
+            seen_pos_rest && throw(ArgumentError("@POS_REST must be the last positional declaration"))
+            push!(declared_names, nm)
+            name_kind[nm] = AK_POS_DEFAULT
+            push!(fields, :($(nm)::$(T)))
+            push!(positional_parse_stmts, quote
+                local $(provided_sym) = !isempty(_args)
+                local $(nm)::$(T) = isempty(_args) ? $(_gr(:_convert_default))($(T), $(dv), $(string(nm))) : $(_gr(:_parse_value))($(T), popfirst!(_args), $(string(nm)))
+            end)
+            push!(argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_POS_DEFAULT)), name=$(QuoteNode(nm)), T=$(T), default=$(dv), help=$(help), help_name=$(help_name))))
+
+        elseif m == SYM_POS_OPT
+            T = node.args[3]
+            nm, rest = _extract_name_and_rest(node, 4, "@POS_OPT", "argument name")
+            nm in declared_names && throw(ArgumentError("duplicate argument name: $(nm)"))
+            help, help_name = _extract_help_meta!(rest; allow_help_name=true, macro_name="@POS_OPT")
+            isempty(rest) || throw(ArgumentError("@POS_OPT supports only keyword metadata: help=\"...\", help_name=\"...\""))
+
+            provided_sym = Symbol("_provided_", nm)
+
+            seen_pos_rest && throw(ArgumentError("@POS_REST must be the last positional declaration"))
+            push!(declared_names, nm)
+            name_kind[nm] = AK_POS_OPTIONAL
+            push!(fields, :($(nm)::Union{$(T),Nothing}))
+            push!(positional_parse_stmts, quote
+                local $(provided_sym) = !isempty(_args)
+                local $(nm)::Union{$(T),Nothing} = isempty(_args) ? nothing : $(_gr(:_parse_value))($(T), popfirst!(_args), $(string(nm)))
+            end)
+            push!(argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_POS_OPTIONAL)), name=$(QuoteNode(nm)), T=$(T), help=$(help), help_name=$(help_name))))
+
+        elseif m == SYM_POS_RST
+            T = node.args[3]
+            nm, rest = _extract_name_and_rest(node, 4, "@POS_REST", "argument name")
+            nm in declared_names && throw(ArgumentError("duplicate argument name: $(nm)"))
+            help, help_name = _extract_help_meta!(rest; allow_help_name=true, macro_name="@POS_REST")
+            isempty(rest) || throw(ArgumentError("@POS_REST supports only keyword metadata: help=\"...\", help_name=\"...\""))
+
+            provided_sym = Symbol("_provided_", nm)
+
+            seen_pos_rest && throw(ArgumentError("only one @POS_REST is allowed and it must be last"))
+            seen_pos_rest = true
+            push!(declared_names, nm)
+            name_kind[nm] = AK_POS_REST
+            push!(fields, :($(nm)::Vector{$(T)}))
+            push!(positional_parse_stmts, quote
+                local $(provided_sym) = !isempty(_args)
+                local $(nm)::Vector{$(T)} = [ $(_gr(:_parse_value))($(T), x, $(string(nm))) for x in _args ]
+                empty!(_args)
+            end)
+            push!(argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_POS_REST)), name=$(QuoteNode(nm)), T=$(T), help=$(help), help_name=$(help_name))))
+
+        elseif m == SYM_TEST
+            nm, rest = _extract_name_and_rest(node, 3, "@ARG_TEST", "argument name")
+            nm in declared_names || throw(ArgumentError("@ARG_TEST references unknown argument: $(nm)"))
+            isempty(rest) && throw(ArgumentError("@ARG_TEST requires a validator function"))
+            fn = rest[1]
+            msg = if length(rest) >= 2
+                rest[2] isa String || throw(ArgumentError("@ARG_TEST message must be a String literal"))
+                rest[2]
+            else
+                "Argument test failed: $(nm)"
+            end
+            length(rest) <= 2 || throw(ArgumentError("@ARG_TEST accepts at most one message String"))
+
+            push!(post_stmts, quote
+                if !(isnothing($(nm)) || $(fn)($(nm)))
+                    local _vname = try String(nameof($(fn))) catch; "validator" end
+                    $(_gr(:_throw_arg_error))($(msg) * " (arg=$(string($(QuoteNode(nm)))), validator=" * _vname * ", value=" * repr($(nm)) * ")")
+                end
+            end)
+
+        elseif m == SYM_STREAM
+            nm, rest = _extract_name_and_rest(node, 3, "@ARG_STREAM", "argument name")
+            nm in declared_names || throw(ArgumentError("@ARG_STREAM references unknown argument: $(nm)"))
+            isempty(rest) && throw(ArgumentError("@ARG_STREAM requires a validator function"))
+            fn = rest[1]
+            msg = if length(rest) >= 2
+                rest[2] isa String || throw(ArgumentError("@ARG_STREAM message must be a String literal"))
+                rest[2]
+            else
+                "Streaming validation failed: $(nm)"
+            end
+            length(rest) <= 2 || throw(ArgumentError("@ARG_STREAM accepts at most one message String"))
+
+            push!(post_stmts, quote
+                local _vname = try String(nameof($(fn))) catch; "validator" end
+                local _fails = String[]
+                if $(nm) isa AbstractVector
+                    for _v in $(nm)
+                        if !$(fn)(_v)
+                            push!(_fails, repr(_v))
+                        end
+                    end
+                elseif !(isnothing($(nm)) || $(fn)($(nm)))
+                    push!(_fails, repr($(nm)))
+                end
+                if !isempty(_fails)
+                    $(_gr(:_throw_arg_error))($(msg) * " (arg=$(string($(QuoteNode(nm)))), validator=" * _vname * ", failed_values=[" * join(_fails, ", ") * "])")
+                end
+            end)
+        else
+            throw(ArgumentError("unsupported DSL macro: $(m)"))
+        end
+    end
+
+    for grp in group_defs_excl, s in grp
+        if !(s in declared_names)
+            throw(ArgumentError("@GROUP_EXCL references unknown argument: $(s)"))
+        end
+    end
+
+    for grp in group_defs_incl, s in grp
+        if !(s in declared_names)
+            throw(ArgumentError("@GROUP_INCL references unknown argument: $(s)"))
+        end
+    end
+
+    for rd in arg_requires_defs
+        rd.anchor in declared_names || throw(ArgumentError("@ARG_REQUIRES references unknown argument: $(rd.anchor)"))
+        for s in rd.targets
+            s in declared_names || throw(ArgumentError("@ARG_REQUIRES references unknown argument: $(s)"))
+        end
+    end
+
+    for cd in arg_conflicts_defs
+        cd.anchor in declared_names || throw(ArgumentError("@ARG_CONFLICTS references unknown argument: $(cd.anchor)"))
+        for s in cd.targets
+            s in declared_names || throw(ArgumentError("@ARG_CONFLICTS references unknown argument: $(s)"))
+        end
+    end
+
+    for grp in group_defs_excl
+        for s in grp
+            if haskey(name_kind, s)
+                k = name_kind[s]
+                if k in (AK_POS_REQUIRED, AK_POS_DEFAULT, AK_POS_OPTIONAL, AK_POS_REST)
+                    throw(ArgumentError("@GROUP_EXCL supports only option-style arguments, got positional: $(s)"))
+                end
+            end
+        end
+    end
+
+    for grp in group_defs_incl
+        for s in grp
+            if haskey(name_kind, s)
+                k = name_kind[s]
+                if k in (AK_POS_REQUIRED, AK_POS_DEFAULT, AK_POS_OPTIONAL, AK_POS_REST)
+                    throw(ArgumentError("@GROUP_INCL supports only option-style arguments, got positional: $(s)"))
+                end
+            end
+        end
+    end
+
+    for rd in arg_requires_defs
+        if haskey(name_kind, rd.anchor)
+            k = name_kind[rd.anchor]
+            if k in (AK_POS_REQUIRED, AK_POS_DEFAULT, AK_POS_OPTIONAL, AK_POS_REST)
+                throw(ArgumentError("@ARG_REQUIRES supports only option-style arguments, got positional: $(rd.anchor)"))
+            end
+        end
+        for s in rd.targets
+            if haskey(name_kind, s)
+                k = name_kind[s]
+                if k in (AK_POS_REQUIRED, AK_POS_DEFAULT, AK_POS_OPTIONAL, AK_POS_REST)
+                    throw(ArgumentError("@ARG_REQUIRES supports only option-style arguments, got positional: $(s)"))
+                end
+            end
+        end
+    end
+
+    for cd in arg_conflicts_defs
+        if haskey(name_kind, cd.anchor)
+            k = name_kind[cd.anchor]
+            if k in (AK_POS_REQUIRED, AK_POS_DEFAULT, AK_POS_OPTIONAL, AK_POS_REST)
+                throw(ArgumentError("@ARG_CONFLICTS supports only option-style arguments, got positional: $(cd.anchor)"))
+            end
+        end
+        for s in cd.targets
+            if haskey(name_kind, s)
+                k = name_kind[s]
+                if k in (AK_POS_REQUIRED, AK_POS_DEFAULT, AK_POS_OPTIONAL, AK_POS_REST)
+                    throw(ArgumentError("@ARG_CONFLICTS supports only option-style arguments, got positional: $(s)"))
+                end
+            end
+        end
+    end
+
+    return fields, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr, group_defs_excl, group_defs_incl, arg_requires_defs, arg_conflicts_defs
+end
+#FILEPATH: ./macros/generators.jl
+
+function _emit_parser_function(
+    fname::Symbol,
+    result_type,
+    fields::Vector{Expr},
+    ctor_args::Vector{Symbol},
+    option_parse_stmts::Vector{Expr},
+    positional_parse_stmts::Vector{Expr},
+    post_stmts::Vector{Expr},
+    group_defs_excl::Vector{Vector{Symbol}},
+    group_defs_incl::Vector{Vector{Symbol}},
+    arg_requires_defs,
+    arg_conflicts_defs,
+    allow_extra::Bool;
+    strict_leftover::Bool=true
+)
+    group_checks_excl = _compile_group_exclusive_checks(group_defs_excl)
+    group_checks_incl = _compile_group_inclusion_checks(group_defs_incl)
+    arg_requires_checks = _compile_arg_requires_checks(arg_requires_defs)
+    arg_conflicts_checks = _compile_arg_conflicts_checks(arg_conflicts_defs)
+    leftover_check = strict_leftover ? _compile_leftover_policy(allow_extra) : :(nothing)
+
+    provided_init = Expr[]
+    provided_finalize = Expr[]
+    for nm in ctor_args
+        local provided_nm = Symbol("_provided_", nm)
+        local cnt_nm = Symbol("_cnt_", nm)
+        push!(provided_init, :(local $(provided_nm) = false))
+        push!(provided_finalize, :(_provided_map[$(QuoteNode(nm))] = $(provided_nm)))
+        push!(provided_finalize, :(_provided_count_map[$(QuoteNode(nm))] = (@isdefined($(cnt_nm)) ? $(cnt_nm) : Int($(provided_nm) ? 1 : 0))))
+    end
+
+    return_expr = if result_type isa Symbol
+        :($(result_type)($([:( $(nm) ) for nm in ctor_args]...)))
+    else
+        result_type
+    end
+
+    unknown_option_check = allow_extra ? :(nothing) : :($(_gr(:_reject_unknown_option_tokens))(_opt_args))
+
+    quote
+        function $(fname)(argv::Vector{String}; allow_empty_option_value::Bool=false)
+            local _args_all = $(_gr(:_split_arguments))(copy(argv))
+            local _dd = findfirst(==("--"), _args_all)
+
+            local _pre_dd::Vector{String}
+            local _pos_after_dd::Vector{String}
+
+            if isnothing(_dd)
+                _pre_dd = _args_all
+                _pos_after_dd = String[]
+            else
+                _pre_dd = _args_all[1:_dd-1]
+                _pos_after_dd = _args_all[_dd+1:end]
+            end
+
+            local _opt_args::Vector{String} = _pre_dd
+            local _provided_map = Dict{Symbol,Bool}()
+            local _provided_count_map = Dict{Symbol,Int}()
+
+            $(provided_init...)
+
+            $(option_parse_stmts...)
+
+            $(unknown_option_check)
+
+            append!(_opt_args, _pos_after_dd)
+            local _args::Vector{String} = _opt_args
+
+            $(positional_parse_stmts...)
+
+            $(post_stmts...)
+            $(provided_finalize...)
+            $(group_checks_excl...)
+            $(group_checks_incl...)
+            $(arg_requires_checks...)
+            $(arg_conflicts_checks...)
+            $(leftover_check)
+
+            return $(return_expr)
+        end
+    end
+end
+
+
+function _emit_argdefs(argdefs_expr::Vector{Expr})
+    return :(ArgDef[$(argdefs_expr...)])
+end
+#FILEPATH: ./macros/placeholders.jl
+
+@inline function _placeholder_macro_error(name::AbstractString)
+    throw(ArgumentError(
+        "$(name) can only be used inside @CMD_MAIN or @CMD_SUB blocks.\n" *
+        "Example:\n" *
+        "@CMD_MAIN MyCmd begin\n" *
+        "    @ARG_FLAG verbose \"-v\" \"--verbose\" help=\"Enable verbose output\"\n" *
+        "end"
+    ))
+end
+
+macro CMD_USAGE(args...)
+    _placeholder_macro_error("@CMD_USAGE")
+end
+
+macro CMD_DESC(args...)
+    _placeholder_macro_error("@CMD_DESC")
+end
+
+macro CMD_EPILOG(args...)
+    _placeholder_macro_error("@CMD_EPILOG")
+end
+
+macro CMD_SUB(args...)
+    _placeholder_macro_error("@CMD_SUB")
+end
+
+macro ARG_REQ(args...)
+    _placeholder_macro_error("@ARG_REQ")
+end
+
+macro ARG_DEF(args...)
+    _placeholder_macro_error("@ARG_DEF")
+end
+
+macro ARG_OPT(args...)
+    _placeholder_macro_error("@ARG_OPT")
+end
+
+macro ARG_FLAG(args...)
+    _placeholder_macro_error("@ARG_FLAG")
+end
+
+macro ARG_COUNT(args...)
+    _placeholder_macro_error("@ARG_COUNT")
+end
+
+
+macro ARG_MULTI(args...)
+    _placeholder_macro_error("@ARG_MULTI")
+end
+
+macro POS_REQ(args...)
+    _placeholder_macro_error("@POS_REQ")
+end
+
+macro POS_DEF(args...)
+    _placeholder_macro_error("@POS_DEF")
+end
+
+macro POS_OPT(args...)
+    _placeholder_macro_error("@POS_OPT")
+end
+
+macro POS_REST(args...)
+    _placeholder_macro_error("@POS_REST")
+end
+
+macro GROUP_EXCL(args...)
+    _placeholder_macro_error("@GROUP_EXCL")
+end
+
+macro GROUP_INCL(args...)
+    _placeholder_macro_error("@GROUP_INCL")
+end
+
+macro ARG_REQUIRES(args...)
+    _placeholder_macro_error("@ARG_REQUIRES")
+end
+
+macro ARG_CONFLICTS(args...)
+    _placeholder_macro_error("@ARG_CONFLICTS")
+end
+
+
+macro ARG_TEST(args...)
+    _placeholder_macro_error("@ARG_TEST")
+end
+
+macro ARG_STREAM(args...)
+    _placeholder_macro_error("@ARG_STREAM")
+end
+
+macro ALLOW_EXTRA(args...)
+    _placeholder_macro_error("@ALLOW_EXTRA")
+end
+#FILEPATH: ./macros/subcommands.jl
+
+Base.@kwdef struct NormalizedSubCmd
+    name::String
+    description::String = ""
+    usage::String = ""
+    epilog::String = ""
+    block::Expr
+    allow_extra::Bool = false
+end
+
+function _build_subcommand_bundle(normalized_sub_nodes::Vector{NormalizedSubCmd}, struct_name, main_ctor_args::Vector{Symbol})
+    sub_def_items = Expr[]
+    sub_parser_exprs = Expr[]
+    dispatch_branches = Expr[]
+    sub_help_branches = Expr[]
+    sub_names = String[]
+
+    for sn in normalized_sub_nodes
+        sub_name = sn.name
+        sub_desc = sn.description
+        sub_usage = sn.usage
+        sub_epilog = sn.epilog
+        sub_block = sn.block
+        sub_allow_extra = sn.allow_extra
+
+        push!(sub_names, sub_name)
+
+        sub_main_nodes = Expr[]
+        for n in _getmacrocalls(sub_block)
+            mm = _getmacroname(n)
+            if mm in (SYM_DESC, SYM_USAGE, SYM_EPILOG, SYM_ALLOW)
+                continue
+            end
+            push!(sub_main_nodes, n)
+        end
+        sub_main_block = Expr(:block, sub_main_nodes...)
+
+        s_fields, s_option_parse_stmts, s_positional_parse_stmts, s_post_stmts, s_argdefs_expr,
+        s_gdefs_excl, s_gdefs_incl, s_arg_requires_defs, s_arg_conflicts_defs = _compile_cmd_block(sub_main_block)
+
+        s_ctor_args = Symbol[f.args[1] for f in s_fields]
+
+        s_parser_name = gensym(Symbol("parse_sub_", replace(sub_name, r"[^A-Za-z0-9_]" => "_")))
+        s_nt_expr = :( (; $(s_ctor_args...)) )
+
+        s_parser_expr = _emit_parser_function(
+            s_parser_name,
+            :($s_nt_expr),
+            s_fields,
+            s_ctor_args,
+            s_option_parse_stmts,
+            s_positional_parse_stmts,
+            s_post_stmts,
+            s_gdefs_excl,
+            s_gdefs_incl,
+            s_arg_requires_defs,
+            s_arg_conflicts_defs,
+            sub_allow_extra
+        )
+
+        main_field_exprs = [:(getfield(_main_obj, $(QuoteNode(nm)))) for nm in main_ctor_args]
+
+        s_arg_requires_expr = Expr(:vect, [
+            :($(_gr(:ArgRequiresDef))(anchor=$(QuoteNode(rd.anchor)), targets=$(Expr(:vect, QuoteNode.(rd.targets)...))))
+            for rd in s_arg_requires_defs
+        ]...)
+
+        s_arg_conflicts_expr = Expr(:vect, [
+            :($(_gr(:ArgConflictsDef))(anchor=$(QuoteNode(cd.anchor)), targets=$(Expr(:vect, QuoteNode.(cd.targets)...))))
+            for cd in s_arg_conflicts_defs
+        ]...)
+
+        push!(dispatch_branches, quote
+            if _sub == $(sub_name)
+                local _payload = $(s_parser_name)(_rest)
+                return $(struct_name)($(main_field_exprs...), _sub, _payload)
+            end
+        end)
+
+        push!(sub_help_branches, quote
+            if _sub == $(sub_name)
+                local _sub_def = $(_gr(:CliDef))(
+                    cmd_name = $(sub_name),
+                    usage = $(sub_usage),
+                    description = $(sub_desc),
+                    epilog = $(sub_epilog),
+                    args = $(_gr(:ArgDef))[$(s_argdefs_expr...)],
+                    subcommands = $(_gr(:SubcommandDef))[],
+                    allow_extra = $(sub_allow_extra),
+                    mutual_exclusion_groups = $(Expr(:vect, [Expr(:vect, QuoteNode.(s_gdefs_excl)...) for s_gdefs_excl in s_gdefs_excl]...)),
+                    mutual_inclusion_groups = $(Expr(:vect, [Expr(:vect, QuoteNode.(s_gdefs_incl)...) for s_gdefs_incl in s_gdefs_incl]...)),
+                    arg_requires = $(s_arg_requires_expr),
+                    arg_conflicts = $(s_arg_conflicts_expr)
+                )
+                throw($(_gr(:ArgHelpRequested))(_sub_def, _path * " " * $(sub_name)))
+            end
+        end)
+
+        push!(sub_def_items, :($(_gr(:SubcommandDef))(
+            name=$(sub_name),
+            description=$(sub_desc),
+            usage=$(sub_usage),
+            epilog=$(sub_epilog),
+            body=nothing,
+            args=$(_gr(:ArgDef))[$(s_argdefs_expr...)],
+            allow_extra=$(sub_allow_extra),
+            mutual_exclusion_groups=$(Expr(:vect, [Expr(:vect, QuoteNode.(s_gdefs_excl)...) for s_gdefs_excl in s_gdefs_excl]...)),
+            mutual_inclusion_groups=$(Expr(:vect, [Expr(:vect, QuoteNode.(s_gdefs_incl)...) for s_gdefs_incl in s_gdefs_incl]...)),
+            arg_requires=$(s_arg_requires_expr),
+            arg_conflicts=$(s_arg_conflicts_expr)
+        )))
+
+        push!(sub_parser_exprs, s_parser_expr)
+    end
+
+    return sub_def_items, sub_parser_exprs, dispatch_branches, sub_help_branches, sub_names
+end
+
+
+function _build_main_parser_expr(
+    struct_name, usage, desc, epilog, allow_extra,
+    fields, ctor_args, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr,
+    gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs,
+    sub_def_items, sub_parser_exprs, dispatch_branches, sub_help_branches, sub_names
+)
+    main_parser_name = gensym(:parse_main)
+    main_result_expr = :( (; $(ctor_args...)) )
+
+    arg_requires_expr = Expr(:vect, [
+        :($(_gr(:ArgRequiresDef))(anchor=$(QuoteNode(rd.anchor)), targets=$(Expr(:vect, QuoteNode.(rd.targets)...))))
+        for rd in arg_requires_defs
+    ]...)
+
+    arg_conflicts_expr = Expr(:vect, [
+        :($(_gr(:ArgConflictsDef))(anchor=$(QuoteNode(cd.anchor)), targets=$(Expr(:vect, QuoteNode.(cd.targets)...))))
+        for cd in arg_conflicts_defs
+    ]...)
+
+    return esc(quote
+        struct $(struct_name)
+            $(fields...)
+            subcommand::Union{Nothing,String}
+            subcommand_args::Union{Nothing,NamedTuple}
+        end
+
+        $(_emit_parser_function(
+            main_parser_name,
+            main_result_expr,
+            fields,
+            ctor_args,
+            option_parse_stmts,
+            positional_parse_stmts,
+            post_stmts,
+            gdefs_excl,
+            gdefs_incl,
+            arg_requires_defs,
+            arg_conflicts_defs,
+            allow_extra;
+            strict_leftover=true
+        ))
+        $(sub_parser_exprs...)
+
+        function $(struct_name)(argv::Vector{String}=ARGS; allow_empty_option_value::Bool=false)
+            local _path = String($(QuoteNode(string(struct_name))))
+            local _main_argdefs = $(_gr(:ArgDef))[$(argdefs_expr...)]
+
+            local _sub = nothing
+            local _sub_idx = 0
+            if !isempty($(sub_names))
+                local _flags_need_value, _flags_no_value = $(_gr(:_build_main_flag_sets))(_main_argdefs)
+                (_sub, _sub_idx) = $(_gr(:_locate_subcommand))(argv, $(sub_names), _flags_need_value, _flags_no_value)
+            end
+
+            if !isnothing(_sub)
+                local _flags_need_value, _flags_no_value = $(_gr(:_build_main_flag_sets))(_main_argdefs)
+                local _main_argv, _sub_argv = $(_gr(:_extract_global_options))(argv, _sub_idx, _flags_need_value, _flags_no_value)
+
+                if $(_gr(:_has_help_flag_before_dd))(_sub_argv)
+                    $(sub_help_branches...)
+                end
+
+                local _main_obj = $(main_parser_name)(_main_argv; allow_empty_option_value=allow_empty_option_value)
+
+                local _rest = _sub_argv
+                $(dispatch_branches...)
+            end
+
+            if $(_gr(:_has_help_flag_before_dd))(argv)
+                local _def = $(_gr(:CliDef))(
+                    cmd_name = _path,
+                    usage = $(usage),
+                    description = $(desc),
+                    epilog = $(epilog),
+                    args = _main_argdefs,
+                    subcommands = $(_gr(:SubcommandDef))[$(sub_def_items...)],
+                    allow_extra = $(allow_extra),
+                    mutual_exclusion_groups = $(Expr(:vect, [Expr(:vect, QuoteNode.(g)...) for g in gdefs_excl]...)),
+                    mutual_inclusion_groups = $(Expr(:vect, [Expr(:vect, QuoteNode.(g)...) for g in gdefs_incl]...)),
+                    arg_requires = $(arg_requires_expr),
+                    arg_conflicts = $(arg_conflicts_expr)
+                )
+                throw($(_gr(:ArgHelpRequested))(_def, _path))
+            end
+
+            local _main_obj = $(main_parser_name)(argv; allow_empty_option_value=allow_empty_option_value)
+            return $(struct_name)($([:(getfield(_main_obj, $(QuoteNode(nm)))) for nm in ctor_args]...), nothing, nothing)
+        end
+    end)
+end
+
+#FILEPATH: ./runtime/api.jl
+
+function parse_cli(
+    ::Type{T},
+    args::Vector{String}=ARGS;
+    allow_empty_option_value::Bool=false,
+    help::HelpTemplateOptions=HelpTemplateOptions()
+) where {T}
+    if !(hasfield(T, :subcommand) && hasfield(T, :subcommand_args))
+        throw(ArgumentError("parse_cli expects a @CMD_MAIN generated type"))
+    end
+
+    local resolved_template = build_help_template(help)
+
+    try
+        return T(args; allow_empty_option_value=allow_empty_option_value)
+    catch e
+        if e isa ArgHelpRequested
+            throw(ArgHelpRequested(e.def, e.path, render_help(e.def; template=resolved_template, path=e.path)))
+        else
+            rethrow()
+        end
+    end
+end
+
+function run_cli(
+    f::Function;
+    io::IO=stdout,
+    err_io::IO=stderr,
+    debug::Bool=false,
+    on_error::Function = (e)->nothing,
+    help::HelpTemplateOptions=HelpTemplateOptions()
+)::Int
+    local resolved_template = build_help_template(help)
+
+    try
+        f()
+        return 0
+    catch e
+        if e isa ArgHelpRequested
+            local msg = if !isempty(e.message)
+                e.message
+            else
+                render_help(e.def; template=resolved_template, path=e.path)
+            end
+            if !isempty(msg)
+                print(io, msg)
+                endswith(msg, '\n') || println(io)
+            end
+            return 0
+        elseif e isa ArgParseError
+            println(err_io, sprint(showerror, e))
+            on_error(e)
+            if debug
+                println(err_io, "---- debug backtrace ----")
+                Base.showerror(err_io, e, catch_backtrace())
+                println(err_io)
+                println(err_io, "-------------------------")
+            end
+            return 2
+        else
+            on_error(e)
+            rethrow()
+        end
+    end
+end
+#FILEPATH: ./runtime/execution.jl
+
+@inline function _throw_arg_error(msg::String)
+    throw(ArgParseError(msg))
+end
+
+@inline function _throw_arg_error_ctx(name::AbstractString, expected::AbstractString, got; hint::AbstractString="")
+    g = repr(got)
+    msg = "Invalid value for $(name): expected $(expected), got $(g)"
+    if !isempty(hint)
+        msg *= ". " * String(hint)
+    end
+    throw(ArgParseError(msg))
+end

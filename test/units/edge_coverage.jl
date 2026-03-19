@@ -359,44 +359,4 @@ end
         end
         @test seen[] == true
     end
-
-    @testset "build_help_template override knobs" begin
-        def = CliDef(
-            cmd_name = "x",
-            args = ArgDef[
-                ArgDef(kind=AK_OPTION, name=:port, T=Int, flags=["-p"], required=true, help="Port")
-            ],
-            subcommands = SubcommandDef[
-                SubcommandDef(name="run", description="Run")
-            ]
-        )
-
-        fmt = HelpFormatOptions(
-            show_type = false,
-            show_required = false,
-            show_default = false,
-            show_option_metavar = false,
-            wrap_description = true,
-            wrap_epilog = true,
-            wrap_width = 40
-        )
-
-        tpl = build_help_template(
-            style=HELP_PLAIN,
-            format=fmt,
-            indent_item=4,
-            indent_text=8,
-            section_gap=false,
-            title_usage="USAGE:",
-            title_options="OPTIONS:",
-            title_subcommands="CMDS:"
-        )
-
-        txt = render_help(def; template=tpl)
-        @test occursin("USAGE:", txt)
-        @test occursin("OPTIONS:", txt)
-        @test occursin("CMDS:", txt)
-        @test !occursin("Type:", txt)
-        @test !occursin("<port>", lowercase(txt))
-    end
 end

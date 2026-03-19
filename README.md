@@ -495,3 +495,254 @@ If subcommand `serve` is selected:
 - `opts.subcommand_args` contains `(host = "127.0.0.1", daemon = false)` (depending on argv)
 
 ---
+
+## Help Template Guide (`help.jl`)
+
+This guide explains how to customize help rendering in `RunicCLI` using:
+
+- `HelpStyle` (`HELP_PLAIN`, `HELP_COLORED`)
+- `HelpTheme`
+- `HelpFormatOptions`
+- `build_help_template(...)`
+- `render_help(def; template=..., path=...)`
+
+---
+
+### 1. Core Concepts
+
+#### 1.1 `CliDef` is the source model for help
+Help text is rendered from a `CliDef` structure (`cmd_name`, `usage`, `description`, `epilog`, `args`, and `subcommands`).
+
+#### 1.2 `ArgHelpTemplate` is a section-based rendering pipeline
+A template contains callable sections:
+
+- `header`
+- `section_usage`
+- `section_description`
+- `section_positionals`
+- `section_options`
+- `section_subcommands`
+- `section_epilog`
+
+Each section receives `(io, def, path)`.
+
+#### 1.3 Template builder
+Use `build_help_template(...)` to quickly create a template with style/theme/format controls.
+
+---
+
+### 2. Quick Start
+
+```julia
+using RunicCLI
+
+tpl = default_help_template()  # plain style
+# or:
+# tpl = colored_help_template()
+
+def = CliDef(
+    cmd_name = "demo",
+    usage = "demo [OPTIONS] [SUBCOMMAND]",
+    description = "Example command for help rendering.",
+    epilog = "See 'demo <subcommand> --help' for details.",
+    args = ArgDef[
+        ArgDef(kind=AK_OPTION, name=:threads, T=Int, flags=["-t","--threads"], required=true, help="Worker threads"),
+        ArgDef(kind=AK_OPTION, name=:ratio, T=Float64, flags=["--ratio"], default=0.5, help="Ratio in [0,1]"),
+        ArgDef(kind=AK_FLAG,   name=:dry_run, T=Bool, flags=["-d","--dry-run"], help="Do not execute writes"),
+        ArgDef(kind=AK_POS_REQUIRED, name=:input, T=String, required=true, help="Input path")
+    ],
+    subcommands = SubcommandDef[
+        SubcommandDef(name="run", description="Run a task"),
+        SubcommandDef(name="inspect", description="Inspect artifacts")
+    ]
+)
+
+println(render_help(def; template=tpl, path="demo"))
+```
+
+---
+
+### 3. Styling with `HelpStyle` and `HelpTheme`
+
+`HelpStyle` controls whether ANSI colors are emitted:
+
+- `HELP_PLAIN` => no color
+- `HELP_COLORED` => colored titles/items/meta
+
+`HelpTheme` customizes color tokens:
+
+```julia
+theme = HelpTheme(
+    reset = "\e[0m",
+    usage_title = "\e[1;35m",
+    section_title = "\e[1;34m",
+    item_name = "\e[1;32m",
+    meta = "\e[2;37m"
+)
+
+tpl = build_help_template(
+    style = HELP_COLORED,
+    theme = theme
+)
+```
+
+---
+
+### 4. Layout and metadata with `HelpFormatOptions`
+
+`HelpFormatOptions` controls structure, labels, visibility, wrapping, and formatters.
+
+#### Common fields
+
+- `indent_item`, `indent_text`
+- `title_usage`, `title_positionals`, `title_options`, `title_subcommands`
+- `show_type`, `show_required`, `show_default`, `show_count_origin`
+- `show_option_metavar`, `metavar_brackets`
+- `wrap_description`, `wrap_epilog`, `wrap_width`
+- `type_formatter`, `default_formatter`
+
+Example:
+
+```julia
+fmt = HelpFormatOptions(
+    indent_item = 4,
+    indent_text = 8,
+    title_usage = "USAGE:",
+    title_positionals = "ARGS:",
+    title_options = "OPTIONS:",
+    title_subcommands = "COMMANDS:",
+    show_type = true,
+    show_required = true,
+    show_default = true,
+    show_option_metavar = true,
+    wrap_description = true,
+    wrap_epilog = true,
+    wrap_width = 88,
+    type_formatter = T -> string(T),
+    default_formatter = x -> repr(x)
+)
+
+tpl = build_help_template(
+    style = HELP_PLAIN,
+    format = fmt
+)
+```
+
+---
+
+### 5. Overriding template fields directly
+
+`build_help_template(...)` can override selected fields without rebuilding all `HelpFormatOptions`:
+
+```julia
+tpl = build_help_template(
+    style = HELP_PLAIN,
+    title_usage = "Usage:",
+    title_options = "Flags and Options:",
+    show_default = false,
+    wrap_description = true,
+    wrap_width = 100
+)
+```
+
+---
+
+### 6. Full example: custom formatting profile
+
+```julia
+using RunicCLI
+
+def = CliDef(
+    cmd_name = "pack",
+    usage = "",
+    description = "Package files into an archive with configurable behavior and output mode.",
+    epilog = "Examples:\n  pack -f zip src/\n  pack -f tar --level 9 src/",
+    args = ArgDef[
+        ArgDef(kind=AK_OPTION, name=:format, T=String, flags=["-f","--format"], required=true, help="Archive format"),
+        ArgDef(kind=AK_OPTION, name=:level, T=Int, flags=["-l","--level"], default=6, help="Compression level"),
+        ArgDef(kind=AK_OPTION_MULTI, name=:file, T=String, flags=["--file"], help="Input file (repeatable)"),
+        ArgDef(kind=AK_COUNT, name=:verbose, T=Int, flags=["-v"], help="Increase verbosity"),
+        ArgDef(kind=AK_POS_REQUIRED, name=:target, T=String, required=true, help="Target folder")
+    ],
+    subcommands = SubcommandDef[]
+)
+
+fmt = HelpFormatOptions(
+    show_type = true,
+    show_default = true,
+    show_required = true,
+    show_count_origin = true,
+    wrap_description = true,
+    wrap_epilog = true,
+    wrap_width = 72
+)
+
+tpl = build_help_template(style=HELP_PLAIN, format=fmt)
+
+println(render_help(def; template=tpl, path="pack"))
+```
+
+If `usage` is empty, the renderer automatically builds a fallback usage line from command shape.
+
+---
+
+### 7. Rendering flow details
+
+`render_help` executes template sections in this order:
+
+1. `header`
+2. `section_usage`
+3. `section_description`
+4. `section_positionals`
+5. `section_options`
+6. `section_subcommands`
+7. `section_epilog`
+
+Each section may emit text or return nothing. Empty sections are skipped.
+
+This means you can implement highly customized templates by replacing one or more section functions.
+
+---
+
+### 8. Minimal fully-custom template example
+
+```julia
+using RunicCLI
+
+tpl = ArgHelpTemplate(
+    header = (io, def, path) -> println(io, "== ", isempty(path) ? def.cmd_name : path, " =="),
+    section_usage = (io, def, path) -> begin
+        println(io, "USAGE: ", isempty(def.usage) ? "(auto)" : def.usage)
+    end,
+    section_description = (io, def, path) -> !isempty(def.description) && println(io, def.description),
+    section_positionals = (io, def, path) -> nothing,
+    section_options = (io, def, path) -> begin
+        for a in def.args
+            if a.kind in (AK_FLAG, AK_COUNT, AK_OPTION, AK_OPTION_MULTI)
+                println(io, " - ", join(a.flags, ", "), " => ", a.name)
+            end
+        end
+    end,
+    section_subcommands = (io, def, path) -> begin
+        if !isempty(def.subcommands)
+            println(io, "SUBCOMMANDS:")
+            for s in def.subcommands
+                println(io, " * ", s.name, " - ", s.description)
+            end
+        end
+    end,
+    section_epilog = (io, def, path) -> !isempty(def.epilog) && println(io, def.epilog)
+)
+```
+
+---
+
+### 9. Best practices
+
+1. Keep `usage` explicit for public CLIs.
+2. Enable wrapping (`wrap_description`, `wrap_epilog`) for long docs.
+3. Use `type_formatter` and `default_formatter` to normalize output style.
+4. Use `HELP_PLAIN` in CI snapshots and `HELP_COLORED` for interactive UX.
+5. Keep subcommand descriptions concise for aligned listing readability.
+```
+

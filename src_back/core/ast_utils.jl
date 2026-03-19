@@ -7,7 +7,11 @@ const SYM_EPILOG  = Symbol("@CMD_EPILOG")
 const SYM_SUB     = Symbol("@CMD_SUB")
 const SYM_TEST    = Symbol("@ARG_TEST")
 const SYM_STREAM  = Symbol("@ARG_STREAM")
+
 const SYM_GROUP   = Symbol("@GROUP_EXCL")
+const SYM_GROUP_INCL = Symbol("@GROUP_INCL")
+const SYM_ARG_REQUIRES = Symbol("@ARG_REQUIRES")
+const SYM_ARG_CONFLICTS = Symbol("@ARG_CONFLICTS")
 const SYM_ALLOW   = Symbol("@ALLOW_EXTRA")
 
 const SYM_REQ     = Symbol("@ARG_REQ")
@@ -140,6 +144,10 @@ end
     end
 end
 
+@inline function _unsupported_help_meta_keyword_error(ctx::String, key)
+    throw(ArgumentError(ctx * "unknown keyword $(key); supported keywords are help=\"...\" and help_name=\"...\""))
+end
+
 function _extract_help_meta!(
     rest::Vector{Any};
     allow_help_name::Bool=true,
@@ -176,7 +184,7 @@ function _extract_help_meta!(
                 deleteat!(rest, i)
                 continue
             else
-                throw(ArgumentError(_ctx("unknown keyword $(key); supported keywords are help=\"...\" and help_name=\"...\"")))
+                _unsupported_help_meta_keyword_error(_ctx(""), key)
             end
         end
         i += 1

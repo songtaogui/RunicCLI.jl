@@ -1,20 +1,45 @@
+#FILEPATH: ./core/types.jl
+
 """
+    ArgHelpTemplate
+
 `ArgHelpTemplate` defines the rendering callbacks used by `render_help`.
 
-Each field is a function `(io, def, path) -> nothing` responsible for rendering
-one section of the final help message.
+Each field stores a callable (typically a function) responsible for rendering one
+logical section of the final help text. The expected callable shape is generally:
+
+`(io, def, path) -> nothing`
+
+where:
+
+- `io` is the target output stream,
+- `def` is the current [`CliDef`](@ref) being rendered,
+- `path` is the command path string (for nested subcommand help).
+
+You can customize help output by replacing one or more callbacks while keeping the\nothers from `default_help_template` / `colored_help_template`.
 
 # Fields
-- `header`: top usage line(s).
-- `section_usage`: optional explicit usage section.
-- `section_description`: command description.
-- `section_positionals`: positional argument list.
-- `section_options`: option/flag list.
-- `section_subcommands`: subcommand list.
-- `section_epilog`: trailing notes/examples.
 
-Custom templates can be built by replacing any callback while reusing defaults
-for other sections.
+- `header`:
+  Renders the top banner (typically command name and compact usage line).
+- `section_usage`:
+  Renders explicit usage text if present.
+- `section_description`:
+  Renders command description text.
+- `section_positionals`:
+  Renders positional arguments section.
+- `section_options`:
+  Renders option/flag section.
+- `section_subcommands`:
+  Renders subcommand list (if any).
+- `section_epilog`:
+  Renders trailing notes/examples/footer.
+
+# Notes
+
+- `ArgHelpTemplate` is intentionally generic (`{H,U,D,P,O,S,E}`), so each field
+  may hold different callable types.
+- It is metadata for rendering only; it does not affect parsing semantics.
 """
 Base.@kwdef struct ArgHelpTemplate{H,U,D,P,O,S,E}
     header::H
@@ -31,71 +56,45 @@ end
 
 Enumeration describing the semantic kind of a declared CLI argument.
 
-`ArgKind` is used internally by RunicCLI to distinguish among option-style arguments, flags, counters,
-and positional arguments. It influences parsing behavior, help formatting, validation rules,
-auto-generated usage fallback text, and rendering emphasis.
-
-Every [`ArgDef`](@ref) stores a `kind::ArgKind`.
+`ArgKind` drives parsing behavior, validation flow, and help rendering style.
+Each [`ArgDef`](@ref) stores one `kind::ArgKind`.
 
 # Values
 
-## Option-style arguments
+## Option-like kinds
 
-- `AK_FLAG`  
-  Boolean switch with no value payload. Produced by `@ARG_FLAG`.
+- `AK_FLAG`:
+  Boolean switch with no value payload (e.g. `--verbose`).
+- `AK_COUNT`:
+  Repeatable counter flag; number of appearances becomes an `Int`.
+- `AK_OPTION`:
+  Single-valued option (`--output file.txt` or `--output=file.txt`).
+- `AK_OPTION_MULTI`:
+  Repeatable option collecting multiple values into a vector.
 
-- `AK_COUNT`  
-  Repeatable counting flag. The number of occurrences becomes an `Int`. Produced by `@ARG_COUNT`.
+## Positional kinds
 
-- `AK_OPTION`  
-  Single-valued option. This includes required options, optional options, and default-valued options
-  depending on the declaration form (`@ARG_REQ`, `@ARG_OPT`, `@ARG_DEF`).
+- `AK_POS_REQUIRED`:
+  Required positional argument.
+- `AK_POS_DEFAULT`:
+  Positional argument with a default when omitted.
+- `AK_POS_OPTIONAL`:
+  Optional positional argument (typically yields `nothing` when absent).
+- `AK_POS_REST`:
+  Captures all remaining positional tokens; must be declared last.
 
-- `AK_OPTION_MULTI`  
-  Repeatable option collecting multiple values into a vector. Produced by `@ARG_MULTI`.
+# Why this matters
 
-## Positional arguments
+RunicCLI uses `ArgKind` to decide whether an argument:
 
-- `AK_POS_REQUIRED`  
-  Required positional argument. Produced by `@POS_REQ`.
-
-- `AK_POS_DEFAULT`  
-  Positional argument with a default value if omitted. Produced by `@POS_DEF`.
-
-- `AK_POS_OPTIONAL`  
-  Optional positional argument yielding `nothing` if omitted. Produced by `@POS_OPT`.
-
-- `AK_POS_REST`  
-  Collects all remaining positional tokens into a vector. Produced by `@POS_REST`.
-  Only one is allowed, and it must be declared last.
-
-# Why `ArgKind` matters
-
-RunicCLI uses `ArgKind` to decide, among other things:
-
-- whether an argument consumes a value,
-- whether multiple occurrences are allowed,
-- whether a positional can be omitted,
-- how help specs are displayed,
-- whether a declaration contributes to the options section or the positionals section,
-- whether an argument can participate in mutual exclusion groups.
-
-For example:
-
-- `AK_FLAG` renders as a flag spec with no metavar and parses to `Bool`,
-- `AK_OPTION_MULTI` renders with a metavar and parses to `Vector{T}`,
-- `AK_POS_REST` renders as a repeated positional and consumes all trailing tokens.
-
-# Notes
-
-- `AK_OPTION` covers several declaration forms that differ by requiredness/default semantics.
-  Those distinctions are represented by additional fields on [`ArgDef`](@ref), such as `required`
-  and `default`, not by separate enum values.
-- Mutual exclusion groups only support option-style arguments, not positional kinds.
+- consumes a value token,
+- may appear multiple times,
+- is option-style vs positional-style,
+- participates in usage/help sections and parse-order rules.
 
 # See also
 
-[`ArgDef`](@ref), [`@CMD_MAIN`](@ref), [`render_help`](@ref)
+[`ArgDef`](@ref), [`CliDef`](@ref), [`SubcommandDef`](@ref)
 """
 @enum ArgKind begin
     AK_FLAG
@@ -109,23 +108,41 @@ For example:
 end
 
 """
-`ArgDef` describes one command-line argument in a schema.
+    ArgDef
 
-It is used for help rendering and parser metadata. Depending on `kind`, the same
-structure models flags, options, and positional arguments.
+`ArgDef` describes a single argument in a command schema.
 
-# Key fields
-- `kind::ArgKind`: argument category.
-- `name::Symbol`: logical field name in parsed output.
-- `T`: expected Julia type for parsed values.
-- `flags::Vector{String}`: accepted option spellings (e.g. `["-o", "--output"]`).
-- `default`: default value for defaulted arguments.
-- `help`: human-readable help text.
-- `help_name`: display name override used in help output.
-- `required::Bool`: whether the argument is mandatory.
+It is the core metadata unit used by parsing, help rendering, source merging
+(CLI / environment / config), and runtime validation.
 
-Additional metadata fields (`tests`, `stream_validator`, `group`) can be used
-for validation and grouping semantics.
+The same structure models both option-style and positional arguments; behavior is
+determined primarily by `kind`.
+
+# Fields
+
+- `kind::ArgKind`:
+  Semantic argument category.
+- `name::Symbol`:
+  Logical argument name used internally and in parsed output.
+- `T::Any`:
+  Target value type for conversion.
+- `flags::Vector{String}`:
+  Accepted option spellings (for option-like kinds), e.g. `["-o", "--output"]`.
+- `default::Any`:
+  Default value (used by defaulted declarations).
+- `help::String`:
+  Human-readable help text.
+- `help_name::String`:
+  Optional display name override for usage/help rendering.
+- `required::Bool`:
+  Whether the argument is mandatory under its declaration semantics.
+
+# Notes
+
+- For positional kinds, `flags` is usually empty.
+- For `AK_OPTION_MULTI`, parsed value is typically `Vector{T}`.
+- Final presence/count semantics used by relation checks (requires/conflicts/groups)
+  are computed during parse execution from argument appearances.
 """
 Base.@kwdef struct ArgDef
     kind::ArgKind
@@ -139,25 +156,29 @@ Base.@kwdef struct ArgDef
 end
 
 """
-`ArgRequiresDef` declares a dependency rule between option-style arguments.
+    ArgRequiresDef
 
-The rule is interpreted as:
+`ArgRequiresDef` declares a dependency relation among option-style arguments.
 
-- if `anchor` is provided at least once,
-- then at least one argument in `targets` must also be provided.
+Rule semantics:
 
-This metadata is produced from `@ARG_REQUIRES` declarations and stored in
-`CliDef.arg_requires` / `SubcommandDef.arg_requires` for validation and help-time
-introspection.
+- if `anchor` appears at least once,
+- then at least one name in `targets` must also appear.
+
+This metadata is produced from DSL declarations (e.g. `@ARG_REQUIRES`) and
+stored on [`CliDef`](@ref) / [`SubcommandDef`](@ref).
 
 # Fields
-- `anchor::Symbol`: the triggering argument name.
-- `targets::Vector{Symbol}`: acceptable dependency arguments; at least one must be present when `anchor` is present.
+
+- `anchor::Symbol`:
+  Trigger argument name.
+- `targets::Vector{Symbol}`:
+  Candidate dependency arguments; at least one must be present when triggered.
 
 # Notes
-- `targets` should be non-empty.
-- `anchor` must not appear in `targets`.
-- The compiler enforces that referenced names exist and are option-style arguments (not positionals).
+
+- `targets` should normally be non-empty.
+- Names are expected to reference declared option-like arguments.
 """
 Base.@kwdef struct ArgRequiresDef
     anchor::Symbol
@@ -165,25 +186,29 @@ Base.@kwdef struct ArgRequiresDef
 end
 
 """
-`ArgConflictsDef` declares an incompatibility rule between option-style arguments.
+    ArgConflictsDef
 
-The rule is interpreted as:
+`ArgConflictsDef` declares an incompatibility relation among option-style arguments.
 
-- if `anchor` is provided at least once,
-- then none of the arguments in `targets` may be provided.
+Rule semantics:
 
-This metadata is produced from `@ARG_CONFLICTS` declarations and stored in
-`CliDef.arg_conflicts` / `SubcommandDef.arg_conflicts` for validation and
-introspection.
+- if `anchor` appears at least once,
+- then none of the names in `targets` may appear.
+
+This metadata is produced from DSL declarations (e.g. `@ARG_CONFLICTS`) and
+stored on [`CliDef`](@ref) / [`SubcommandDef`](@ref).
 
 # Fields
-- `anchor::Symbol`: the argument whose presence activates the conflict rule.
-- `targets::Vector{Symbol}`: arguments that are forbidden when `anchor` is present.
+
+- `anchor::Symbol`:
+  Trigger argument name.
+- `targets::Vector{Symbol}`:
+  Argument names forbidden when `anchor` is present.
 
 # Notes
-- `targets` should be non-empty.
-- `anchor` must not appear in `targets`.
-- The compiler enforces that referenced names exist and are option-style arguments (not positionals).
+
+- `targets` should normally be non-empty.
+- Names are expected to reference declared option-like arguments.
 """
 Base.@kwdef struct ArgConflictsDef
     anchor::Symbol
@@ -191,25 +216,51 @@ Base.@kwdef struct ArgConflictsDef
 end
 
 """
-`SubcommandDef` stores metadata for a subcommand.
+    SubcommandDef
+
+`SubcommandDef` stores the declarative schema of one subcommand.
+
+It contains command metadata, argument definitions, relation constraints, and
+policy flags used by parsing, dispatch, and help rendering.
 
 # Fields
-- `name`: subcommand token as typed on CLI.
-- `description`: one-line description for help listing.
-- `body`: original DSL expression block.
-- `args`: argument definitions specific to this subcommand.
-- `allow_extra`: whether unknown trailing tokens are allowed.
-- `mutual_exclusion_groups`: argument-name groups where at most one may be present.
-- `mutual_inclusion_groups`: argument-name groups where at least one may be present.
 
-Instances are embedded in `CliDef.subcommands` and consumed by help rendering
-and dispatch logic.
+- `name::String`:
+  Subcommand token used on CLI (e.g. `"build"`).
+- `description::String`:
+  One-line summary shown in parent command help.
+- `usage::String`:
+  Optional explicit usage text for this subcommand.
+- `epilog::String`:
+  Optional trailing help section text.
+- `version::String`:
+  Version text returned when `-V` / `--version` is requested in subcommand scope.
+- `body::Union{Nothing,Expr}`:
+  Optional stored DSL body expression (introspection/compile flow metadata).
+- `args::Vector{ArgDef}`:
+  Subcommand-local arguments.
+- `allow_extra::Bool`:
+  Whether unknown leftover tokens are accepted.
+- `mutual_exclusion_groups::Vector{Vector{Symbol}}`:
+  Groups where at most one argument in each group may be present.
+- `mutual_inclusion_groups::Vector{Vector{Symbol}}`:
+  Groups where at least one argument in each group must be present.
+- `arg_requires::Vector{ArgRequiresDef}`:
+  Anchor/targets dependency rules.
+- `arg_conflicts::Vector{ArgConflictsDef}`:
+  Anchor/targets conflict rules.
+
+# Notes
+
+- `version` enables per-subcommand version messaging in the generated parser flow.
+- Subcommand definitions are embedded into `CliDef.subcommands`.
 """
 Base.@kwdef struct SubcommandDef
     name::String
     description::String = ""
     usage::String = ""
     epilog::String = ""
+    version::String = ""
     body::Union{Nothing,Expr} = nothing
     args::Vector{ArgDef} = ArgDef[]
     allow_extra::Bool = false
@@ -220,25 +271,53 @@ Base.@kwdef struct SubcommandDef
 end
 
 """
-`CliDef` is the full declarative schema of a command parser.
+    CliDef
 
-It combines top-level command metadata (`cmd_name`, `usage`, `description`,
-`epilog`) with argument definitions, subcommand definitions, and policy flags.
+`CliDef` is the top-level declarative schema of a command-line interface.
+
+It combines command metadata, top-level arguments, subcommands, relation rules,
+and parser policy options. `CliDef` is used by help rendering, completion
+generation, and parser-side introspection.
 
 # Fields
-- `args`: top-level arguments (`Vector{ArgDef}`).
-- `subcommands`: available subcommands (`Vector{SubcommandDef}`).
-- `allow_extra`: whether unknown trailing tokens are allowed.
-- `mutual_exclusion_groups`: argument-name groups where at most one may be present.
-- `mutual_inclusion_groups`: argument-name groups where at least one may be present.
 
-`CliDef` is primarily used for help generation and parser introspection.
+- `cmd_name::String`:
+  Command display name.
+- `usage::String`:
+  Optional explicit usage text.
+- `description::String`:
+  Main command description.
+- `epilog::String`:
+  Optional trailing help text.
+- `version::String`:
+  Version text returned when `-V` / `--version` is requested.
+- `args::Vector{ArgDef}`:
+  Top-level argument definitions.
+- `subcommands::Vector{SubcommandDef}`:
+  Declared subcommands.
+- `allow_extra::Bool`:
+  Whether unknown trailing tokens are allowed.
+- `mutual_exclusion_groups::Vector{Vector{Symbol}}`:
+  Groups where at most one argument in each group may be present.
+- `mutual_inclusion_groups::Vector{Vector{Symbol}}`:
+  Groups where at least one argument in each group must be present.
+- `arg_requires::Vector{ArgRequiresDef}`:
+  Dependency relations.
+- `arg_conflicts::Vector{ArgConflictsDef}`:
+  Conflict relations.
+
+# Notes
+
+- `CliDef` is schema metadata; actual parsed values are produced by generated
+  parser functions / command types.
+- This structure is also the input for `render_help` and `generate_completion`.
 """
 Base.@kwdef struct CliDef
     cmd_name::String = ""
     usage::String = ""
     description::String = ""
     epilog::String = ""
+    version::String = ""
     args::Vector{ArgDef} = ArgDef[]
     subcommands::Vector{SubcommandDef} = SubcommandDef[]
     allow_extra::Bool = false
@@ -247,4 +326,3 @@ Base.@kwdef struct CliDef
     arg_requires::Vector{ArgRequiresDef} = ArgRequiresDef[]
     arg_conflicts::Vector{ArgConflictsDef} = ArgConflictsDef[]
 end
-

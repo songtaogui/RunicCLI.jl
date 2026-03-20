@@ -2,6 +2,7 @@
 const SYM_USAGE   = Symbol("@CMD_USAGE")
 const SYM_DESC    = Symbol("@CMD_DESC")
 const SYM_EPILOG  = Symbol("@CMD_EPILOG")
+const SYM_VERSION = Symbol("@CMD_VERSION")
 const SYM_SUB     = Symbol("@CMD_SUB")
 const SYM_TEST    = Symbol("@ARG_TEST")
 const SYM_STREAM  = Symbol("@ARG_STREAM")
@@ -45,6 +46,28 @@ function _getmacroname(ex::Expr)::Union{Symbol,Nothing}
     end
     sym = _extract_macro_symbol(ex.args[1])
     return sym
+end
+
+@inline function _macrocall_user_args(ex::Expr)::Vector{Any}
+    if ex.head != :macrocall || length(ex.args) < 3
+        return Any[]
+    end
+    return Any[ex.args[i] for i in 3:length(ex.args)]
+end
+
+function _macrocall_info(ex::Expr)
+    name = _getmacroname(ex)
+    name === nothing && return nothing
+    return (name=name, args=_macrocall_user_args(ex), node=ex)
+end
+
+function _collect_macrocall_infos(block::Expr)
+    infos = Any[]
+    for n in _getmacrocalls(block)
+        info = _macrocall_info(n)
+        info === nothing || push!(infos, info)
+    end
+    return infos
 end
 
 @inline function _flatten_block_nodes!(x, out::Vector{Any})

@@ -120,6 +120,46 @@ end
 macro CMD_EPILOG(args...) _placeholder_macro_error("@CMD_EPILOG") end
 
 """
+    @CMD_VERSION "VERSION TEXT"
+
+Set the version text for a command and enable version flag handling (`-V`, `--version`).
+
+This macro is only valid inside a `@CMD_MAIN ... begin ... end` block or a
+`@CMD_SUB ... begin ... end` block. The argument must be exactly one string
+literal.
+
+Behavior:
+- In `@CMD_MAIN`, it defines the version text returned by top-level
+  `-V` / `--version`.
+- In `@CMD_SUB`, it defines the version text returned by subcommand
+  `-V` / `--version` (when version is requested for that subcommand).
+- Version flags are detected before `--` passthrough.
+- If omitted, version output is an empty string unless provided by other sources
+  (for example config overrides in your runtime flow).
+
+Constraints:
+- Accepts one `String` literal.
+- Duplicates in the same command scope are rejected.
+- Not callable at runtime (placeholder macro outside DSL expansion).
+
+Example:
+```julia
+@CMD_MAIN MyCLI begin
+    @CMD_VERSION "mycli 1.4.0"
+end
+```
+
+Subcommand example:
+```julia
+@CMD_SUB "build" begin
+    @CMD_VERSION "mycli build 1.4.0"
+end
+```
+"""
+macro CMD_VERSION(args...) _placeholder_macro_error("@CMD_VERSION") end
+
+
+"""
     @CMD_SUB "name" begin ... end
     @CMD_SUB "name" "description" begin ... end
 
@@ -558,25 +598,77 @@ macro ARG_CONFLICTS(args...) _placeholder_macro_error("@ARG_CONFLICTS") end
 Declare a post-parse validator for a single argument value.
 
 Behavior:
-- Evaluates after parsing and conversion.
-- For `nothing` values, validation is skipped (treated as pass).
-- For non-`nothing` values, requires `fn(value) == true`.
-- On failure, raises an argument parse error with optional custom message.
+- Evaluates after parsing and type conversion.
+- If the argument value is `nothing`, validation is skipped (treated as pass).
+- Otherwise, requires `fn(value) == true`.
+- On failure, parsing raises `ArgParseError`.
+- If `msg` is provided, it must be a string literal and is used as custom error text.
 
 Constraints:
 - `name` must refer to an already declared argument.
 - `fn` is required.
 - Optional `msg` must be a string literal.
-- At most one custom message is allowed.
 - Not callable at runtime (placeholder macro outside DSL expansion).
 
-Example:
+---
+
+## Built-in validator helpers
+
+`@ARG_TEST` works well with RunicCLI's built-ins:
+
+### Numeric
+- [`v_min(minv)`](@ref)
+- [`v_max(maxv)`](@ref)
+- [`v_range(lo, hi; closed=true)`](@ref)
+
+### Membership
+- [`v_oneof(xs)`](@ref)
+- [`v_include(xs)`](@ref) (alias of `v_oneof`)
+- [`v_exclude(xs)`](@ref)
+
+### String / pattern
+- [`v_length(; min=nothing, max=nothing, eq=nothing)`](@ref)
+- [`v_prefix(prefix)`](@ref)
+- [`v_suffix(suffix)`](@ref)
+- [`v_regex(re::Regex)`](@ref)
+
+### Path
+- [`v_exists()`](@ref)
+- [`v_isfile()`](@ref)
+- [`v_isdir()`](@ref)
+- [`v_readable()`](@ref)
+- [`v_writable()`](@ref)
+
+### Composition
+- [`v_and(f1, f2, ...)`](@ref)
+- [`v_or(f1, f2, ...)`](@ref)
+
+---
+
+## Examples
+
+Built-in composition:
+
 ```julia
-@CMD_MAIN MyCLI begin
-    @ARG_OPT Int threads "--threads"
-    @ARG_TEST threads x -> x > 0 "threads must be positive"
-end
+@ARG_TEST port v_and(v_min(1), v_max(65535)) "port must be in 1..65535"
+@ARG_TEST mode v_oneof(["fast", "safe", "debug"]) "invalid mode"
+@ARG_TEST input v_and(v_exists(), v_isfile(), v_readable()) "input must be a readable file"
 ```
+
+Custom validator function:
+
+```julia
+is_even_positive(x) = x > 0 && iseven(x)
+@ARG_TEST threads is_even_positive "threads must be a positive even integer"
+```
+
+Inline lambda:
+
+```julia
+@ARG_TEST name x -> length(strip(x)) > 0 "name cannot be blank"
+```
+
+For vector-like arguments with per-element checks, see [`@ARG_STREAM`](@ref).
 """
 macro ARG_TEST(args...) _placeholder_macro_error("@ARG_TEST") end
 

@@ -1,0 +1,5 @@
+include("codegen/relation_codegen.jl")
+include("codegen/parser_function_codegen.jl")
+include("codegen/clidef_codegen.jl")
+include("codegen/subcommand_codegen.jl")
+include("codegen/main_codegen.jl")

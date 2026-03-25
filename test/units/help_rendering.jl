@@ -23,7 +23,7 @@ using RunicCLI
 
         @test occursin("Usage:", txt)
         @test occursin("Positional Arguments:", txt)
-        @test occursin("Option Arguments:", txt)
+        @test occursin("Options:", txt)
         @test occursin("Subcommands:", txt)
 
         @test occursin("Demo command for help output.", txt)
@@ -51,7 +51,7 @@ using RunicCLI
         @test occursin("\e[", txt)
         @test occursin("Usage:", txt)
         @test occursin("Positional Arguments:", txt)
-        @test occursin("Option Arguments:", txt)
+        @test occursin("Options:", txt)
     end
 
     @testset "fallback usage line" begin
@@ -127,9 +127,9 @@ using RunicCLI
 
         txt = render_help(def; template=tpl)
 
-        @test occursin("src::String", txt)
-        @test occursin("<port>::Int", txt)
-        @test occursin("<tag>::Vector{String}", txt)
+        @test occursin("src <String", txt)
+        @test occursin("<Int", txt)
+        @test occursin("<String", txt)
         @test occursin("Source file", txt)
         @test occursin("Port value", txt)
         @test occursin("Required", txt)
@@ -139,7 +139,7 @@ using RunicCLI
         def2 = CliDef(
             cmd_name = "demo",
             args = ArgDef[
-                ArgDef(kind=AK_POS_DEFAULT, name=:mode, T=String, default="fast", help="Mode"),
+                ArgDef(kind=AK_POS_OPTIONAL, name=:mode, T=String, default="fast", help="Mode"),
                 ArgDef(kind=AK_OPTION, name=:port, T=Int, flags=["-p", "--port"], default=8080, required=false, help="Port")
             ]
         )
@@ -162,7 +162,7 @@ using RunicCLI
         txt = render_help(def2)
 
         @test occursin("Increase verbosity", txt)
-        @test occursin("Count of -v", txt)
+        @test occursin("Count occurrences.", txt)
     end
 
     @testset "show_option_metavar toggle" begin
@@ -179,7 +179,7 @@ using RunicCLI
                 show_option_metavar = true
             )
         )
-        @test occursin("<port>", lowercase(txt1))
+        @test occursin("<int", lowercase(txt1))
 
         txt2 = render_help(
             def2; template=build_help_template(
@@ -246,7 +246,7 @@ using RunicCLI
 
         txt = render_help(def; template=tpl)
         @test occursin("USAGE:", txt)
-        @test occursin("<port>::Int", txt)
+        @test occursin("<Int", txt)
     end
 end
 

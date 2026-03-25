@@ -24,7 +24,7 @@ end
 end
 
 @CMD_MAIN GlobalAfterSubcommandForTest begin
-    @ARG_DEF Float64 1.0 ratio "-r" "--ratio" help="Global ratio"
+    @ARG_OPT Float64 ratio "-r" "--ratio" help="Global ratio" default=1.0
     @ARG_FLAG verbose "-v" "--verbose" help="Verbose"
 
     @CMD_SUB "run" "Run subcommand" begin

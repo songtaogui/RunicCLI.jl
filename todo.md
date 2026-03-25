@@ -1,10 +1,12 @@
-# 需要增加的特性
-- `@CMD_VERSION`宏绑定`-V, --version`
-- 内置常用校验器, 减少 @ARG_TEST 手写）
-    -数值：min/max/range
-    -集合：oneof/include/exclude
-    -字符串：length/prefix/suffix/regex
-    -路径：exists/isfile/isdir/readable/writable
-    -可组合校验（AND/OR）
-- 参数来源: 环境变量退回、配置文件(TOML、YAML、JSON) + CLI覆盖优先级
-- 自动补全(bash/zsh/fish)
+1. Documents
+
+2. lazy command handler 支持
+    - DSL 层声明某子命令对应模块/函数
+    - RunicCLI 自动在 dispatch 时延迟加载并 invokelatest
+    - 用户不用手写模板代码
+3. build/generate 模式
+    - 把 DSL 编译为纯函数文件（或最小 runtime + 生成代码）
+    - 支持增量（hash）更新
+4. 官方 PackageCompiler 集成
+    - 提供 create_sysimage 的推荐配置脚本
+    - 一键生成“help 快速响应”的二进制/启动器

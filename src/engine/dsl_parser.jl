@@ -1,0 +1,6 @@
+include("dsl/meta_parser.jl")
+include("dsl/subcommand_parser.jl")
+include("dsl/symbol_parser.jl")
+include("dsl/declaration_parser.jl")
+include("dsl/declaration_codegen.jl")
+include("dsl/compile_block.jl")

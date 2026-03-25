@@ -1,101 +1,3 @@
-function _expect_string_literal_at(node::Expr, idx::Int, macro_name::String, expect_ctx::String="")
-    length(node.args) >= idx || throw(ArgumentError(
-        isempty(expect_ctx) ?
-        "$(macro_name) expects one String literal" :
-        "$(macro_name) in $(expect_ctx) expects one String literal"
-    ))
-    v = node.args[idx]
-    v isa String || throw(ArgumentError(
-        isempty(expect_ctx) ?
-        "$(macro_name) expects a String literal" :
-        "$(macro_name) in $(expect_ctx) expects a String literal"
-    ))
-    return v
-end
-
-function _parse_cmd_meta_block(
-    block::Expr;
-    initial_desc::String="",
-    desc_predeclared::Bool=false,
-    dup_ctx::String,
-    expect_ctx::String=""
-)
-    usage = ""
-    desc = initial_desc
-    epilog = ""
-    version = ""
-    allow_extra = false
-
-    seen_usage = false
-    seen_desc = desc_predeclared || !isempty(initial_desc)
-    seen_epilog = false
-    seen_version = false
-    seen_allow = false
-
-    other_nodes = Expr[]
-
-    for node in _getmacrocalls(block)
-        m = _getmacroname(node)
-
-        if m == SYM_USAGE
-            seen_usage && throw(ArgumentError("@CMD_USAGE is duplicated in $(dup_ctx)"))
-            usage = _expect_string_literal_at(node, 3, "@CMD_USAGE", expect_ctx)
-            seen_usage = true
-
-        elseif m == SYM_DESC
-            seen_desc && throw(ArgumentError("@CMD_DESC is duplicated in $(dup_ctx)"))
-            desc = _expect_string_literal_at(node, 3, "@CMD_DESC", expect_ctx)
-            seen_desc = true
-
-        elseif m == SYM_EPILOG
-            seen_epilog && throw(ArgumentError("@CMD_EPILOG is duplicated in $(dup_ctx)"))
-            epilog = _expect_string_literal_at(node, 3, "@CMD_EPILOG", expect_ctx)
-            seen_epilog = true
-
-        elseif m == SYM_VERSION
-            seen_version && throw(ArgumentError("@CMD_VERSION is duplicated in $(dup_ctx)"))
-            version = _expect_string_literal_at(node, 3, "@CMD_VERSION", expect_ctx)
-            seen_version = true
-
-        elseif m == SYM_ALLOW
-            seen_allow && throw(ArgumentError("@ALLOW_EXTRA is duplicated in $(dup_ctx)"))
-            allow_extra = true
-            seen_allow = true
-
-        else
-            push!(other_nodes, node)
-        end
-    end
-
-    return (usage=usage, desc=desc, epilog=epilog, version=version, allow_extra=allow_extra, other_nodes=other_nodes)
-end
-
-function _parse_sub_signature(node::Expr)
-    length(node.args) >= 4 || throw(ArgumentError("@CMD_SUB expects \"name\" begin ... end or \"name\" \"desc\" begin ... end"))
-
-    sub_name = node.args[3]
-    sub_name isa String || throw(ArgumentError("@CMD_SUB name must be a String literal"))
-    startswith(sub_name, "-") && throw(ArgumentError("@CMD_SUB name must not start with '-'"))
-
-    sub_desc = ""
-    sub_block = nothing
-
-    if length(node.args) == 4
-        sub_block = node.args[4]
-    elseif length(node.args) == 5
-        if node.args[4] isa String
-            sub_desc = node.args[4]
-            sub_block = node.args[5]
-        else
-            throw(ArgumentError("@CMD_SUB second argument must be a String description when 5 arguments are used"))
-        end
-    else
-        throw(ArgumentError("@CMD_SUB expects \"name\" begin ... end or \"name\" \"desc\" begin ... end"))
-    end
-
-    (sub_block isa Expr && sub_block.head == :block) || throw(ArgumentError("@CMD_SUB body must be a begin...end block"))
-    return sub_name, sub_desc, sub_block
-end
 
 """
     @CMD_MAIN TypeName begin
@@ -220,20 +122,13 @@ Declare a required single-valued option.
 - Parsing requirement: one of the declared flags must appear with a value
 - Help kind: `AK_OPTION`, `required=true`
 
-#### `@ARG_DEF T default name flags... [help="..."] [help_name="..."]`
-
-Declare an option with a default value.
-
-- Result field type: `T`
-- If the option is omitted, `default` is converted to `T`
-- Help kind: `AK_OPTION`, `required=false`, `default=...`
-
-#### `@ARG_OPT T name flags... [help="..."] [help_name="..."]`
+#### `@ARG_OPT T name flags... [help="..."] [help_name="..."] [env="..."] [default="..."]`
 
 Declare an optional single-valued option.
 
 - Result field type: `Union{T,Nothing}`
 - If omitted, the field becomes `nothing`
+- arg assign order: CLI > ENV > DEFAULT
 
 #### `@ARG_FLAG name flags... [help="..."] [help_name="..."]`
 
@@ -261,10 +156,7 @@ Declare a repeatable valued option.
 #### `@POS_REQ T name [help="..."] [help_name="..."]`
 Required positional (`T`)
 
-#### `@POS_DEF T default name [help="..."] [help_name="..."]`
-Defaulted positional (`T`)
-
-#### `@POS_OPT T name [help="..."] [help_name="..."]`
+#### `@POS_OPT T name [help="..."] [help_name="..."] [env="..."] [default="..."]`
 Optional positional (`Union{T,Nothing}`)
 
 #### `@POS_REST T name [help="..."] [help_name="..."]`
@@ -387,7 +279,7 @@ You can generate completion scripts from a `CliDef` via [`generate_completion`](
     @CMD_USAGE "mycli [OPTIONS] [SUBCOMMAND] [ARGS...]"
     @CMD_VERSION "mycli 1.2.3"
 
-    @ARG_DEF Int 8080 port "-p" "--port" help="Server port"
+    @ARG_OPT Int port "-p" "--port" help="Server port" default=8080
     @ARG_MULTI String tag "-t" "--tag" help="Repeatable tag"
     @ARG_TEST port v_and(v_min(1), v_max(65535)) "port must be 1..65535"
     @ARG_STREAM tag v_length(min=1) "tag must be non-empty"
@@ -407,86 +299,5 @@ end
 [`build_help_template`](@ref)
 """
 macro CMD_MAIN(struct_name, block)
-    if !(block isa Expr && block.head == :block)
-        throw(ArgumentError("@CMD_MAIN expects a `begin ... end` block as second argument"))
-    end
-
-    if !(struct_name isa Symbol)
-        throw(ArgumentError("@CMD_MAIN first argument must be a plain type name Symbol (e.g. MyType), dotted names are not supported"))
-    end
-
-    nonmacro = _nonmacro_nodes(block)
-    if !isempty(nonmacro)
-        throw(ArgumentError("Only DSL macros are allowed inside @CMD_MAIN block; found non-macro statement(s)"))
-    end
-
-    main_meta = _parse_cmd_meta_block(
-        block;
-        initial_desc="",
-        desc_predeclared=false,
-        dup_ctx="@CMD_MAIN",
-        expect_ctx=""
-    )
-
-    usage = main_meta.usage
-    desc = main_meta.desc
-    epilog = main_meta.epilog
-    version = main_meta.version
-    allow_extra = main_meta.allow_extra
-
-    main_nodes = Expr[]
-    normalized_sub_nodes = NormalizedSubCmd[]
-
-    for node in main_meta.other_nodes
-        m = _getmacroname(node)
-
-        if m == SYM_SUB
-            sub_name, sub_desc, sub_block = _parse_sub_signature(node)
-
-            nonmacro_sub = _nonmacro_nodes(sub_block)
-            if !isempty(nonmacro_sub)
-                throw(ArgumentError("Only DSL macros are allowed inside @CMD_SUB block; found non-macro statement(s)"))
-            end
-
-            sub_meta = _parse_cmd_meta_block(
-                sub_block;
-                initial_desc=sub_desc,
-                desc_predeclared=!isempty(sub_desc),
-                dup_ctx="@CMD_SUB \"$(sub_name)\"",
-                expect_ctx="@CMD_SUB \"$(sub_name)\""
-            )
-
-            if any(s.name == sub_name for s in normalized_sub_nodes)
-                throw(ArgumentError("duplicate subcommand name: $(sub_name)"))
-            end
-
-            push!(normalized_sub_nodes, NormalizedSubCmd(
-                name=sub_name,
-                description=sub_meta.desc,
-                usage=sub_meta.usage,
-                epilog=sub_meta.epilog,
-                version=sub_meta.version,
-                block=Expr(:block, sub_meta.other_nodes...),
-                allow_extra=sub_meta.allow_extra
-            ))
-        else
-            push!(main_nodes, node)
-        end
-    end
-
-    main_block = Expr(:block, main_nodes...)
-    fields, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr, gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs = _compile_cmd_block(main_block)
-
-    ctor_args = Symbol[f.args[1] for f in fields]
-
-    sub_def_items, sub_parser_exprs, dispatch_branches, sub_help_branches, sub_version_branches, sub_names =
-        _build_subcommand_bundle(normalized_sub_nodes, struct_name, ctor_args)
-
-
-    _build_main_parser_expr(
-        struct_name, usage, desc, epilog, version, allow_extra,
-        fields, ctor_args, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr,
-        gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs,
-        sub_def_items, sub_parser_exprs, dispatch_branches, sub_help_branches, sub_version_branches, sub_names
-    )
+    return build_cmd_main_expr(struct_name, block)
 end

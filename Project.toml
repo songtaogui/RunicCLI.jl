@@ -4,10 +4,9 @@ version = "0.1.0"
 authors = ["songtaogui<songtaogui@sina.com>"]
 
 [deps]
-TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
-TextWrap = "b718987f-49a8-5099-9789-dcd902bef87d"
+MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
+RunicCLIRuntime = "2d9a0462-f75e-4e7b-a4a8-2f5f7a313918"
 
 [compat]
-TOML = "1.0.3"
-TextWrap = "1.0.2"
+MacroTools = "0.5.16"
 julia = "1.12"

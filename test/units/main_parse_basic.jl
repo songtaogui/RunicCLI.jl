@@ -7,14 +7,14 @@ using RunicCLI
     @CMD_EPILOG "Basic command epilog."
 
     @ARG_REQ Int port "-p" "--port" help="Port number"
-    @ARG_DEF String "localhost" host "-H" "--host" help="Host name"
+    @ARG_OPT String host "-H" "--host" help="Host name" default="localhost"
     @ARG_OPT Float64 ratio "-r" "--ratio" help="Ratio value"
     @ARG_FLAG verbose "-v" "--verbose" help="Verbose switch"
     @ARG_COUNT quiet "-q" help="Quiet level"
     @ARG_MULTI Int nums "-n" "--num" help="Multiple integers"
 
     @POS_REQ String src help="Source path"
-    @POS_DEF String "out.txt" dst help="Destination path"
+    @POS_OPT String dst help="Destination path" default="out.txt"
     @POS_OPT Int retry help="Retry count"
     @POS_REST String rest help="Remaining args"
 
@@ -79,7 +79,7 @@ end
         catch e
             @test e isa RunicCLI.ArgHelpRequested
             @test occursin("Usage:", e.message)
-            @test occursin("Option Arguments:", e.message)
+            @test occursin("Options:", e.message)
             @test occursin("Positional Arguments:", e.message)
         end
     end

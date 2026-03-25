@@ -66,7 +66,7 @@ If your CLI is growing from a script into an interface surface (for users, teams
 | Exception-first control flow | ✅ (`ArgParseError`, `ArgHelpRequested`) | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
 | Duplicate flag/name compile-time checks | ✅ (strong in macro compiler) | ⚠️ | ✅ (runtime checks) | ✅ | ⚠️ |
 | Docstring/function-to-CLI generation | ❌ | ❌ | ❌ | ✅ (major strength) | ✅ (usage-doc centric) |
-| Shell completion generation | ❌ | ❌ | ⚠️ | ✅ | ❌ |
+| Shell completion generation | ✅ | ❌ | ⚠️ | ✅ | ❌ |
 
 
 ---
@@ -96,7 +96,7 @@ using RunicCLI
     @CMD_EPILOG "Use `mycli <subcommand> --help` for subcommand details."
 
     @ARG_REQ Int threads "-t" "--threads" help="Number of worker threads", help_name="N"
-    @ARG_DEF String "info" log_level "--log-level" help="Log level"
+    @ARG_OPT String log_level "--log-level" help="Log level" default="info"
     @ARG_FLAG verbose "-v" "--verbose" help="Enable verbose output"
     @ARG_COUNT quiet "-q" help="Decrease verbosity (repeatable)"
     @ARG_MULTI String include "-I" "--include" help="Include path", help_name="PATH"
@@ -208,10 +208,10 @@ Regular statements are rejected at macro expansion time.
 - `@ALLOW_EXTRA` (at most once per scope)
 
 #### Arguments and constraints
-- Options: `@ARG_REQ`, `@ARG_DEF`, `@ARG_OPT`, `@ARG_FLAG`, `@ARG_COUNT`, `@ARG_MULTI`
-- Positionals: `@POS_REQ`, `@POS_DEF`, `@POS_OPT`, `@POS_REST`
-- Validators: `@ARG_TEST`, `@ARG_STREAM`
-- Mutual exclusion: `@GROUP_EXCL`
+- Options: `@ARG_REQ`, `@ARG_OPT`, `@ARG_FLAG`, `@ARG_COUNT`, `@ARG_MULTI`
+- Positionals: `@POS_REQ`, `@POS_OPT`, `@POS_REST`
+- Validators: `@ARG_TEST`, `@ARG_STREAM`, 
+- Mutual exclusion: `@GROUP_EXCL`, `@GROUP_INCL`, `@ARG_CONFLICTS`, `@ARG_REQUIRES`
 
 #### Subcommands
 - `@CMD_SUB "name" begin ... end`
@@ -236,25 +236,31 @@ Required single-value option.
 
 ---
 
-> `@ARG_DEF T default name flags... [help=...] [help_name=...]`
+> `@ARG_OPT T default name flags... [help=...] [help_name=...] [env="..."] [default="..."]`
 > 
-Optional single-value option with default.
+Optional single-value option with env and default support.
 
-- Field type: `T`
-- Omitted => `convert(T, default)`
-- Provided => parse as `T`
-- Repeated => parse error
+Behavior:
+- Produces a field of type `Union{T,Nothing}` when `default` is not provided.
+- Produces a field of type `T` when `default` is provided.
+- Value resolution order is:
+  1. CLI option value, if the option is present
+  2. Environment variable value from `env="..."`
+  3. `default=...`
+  4. `nothing` (only when no default is provided)
+- CLI input and environment input are parsed as `T`.
+- `default` is converted to `T` using RunicCLI default conversion.
+- Multiple occurrences of the same logical option are rejected.
 
----
-
-> `@ARG_OPT T name flags... [help=...] [help_name=...]`
-> 
-Nullable single-value option.
-
-- Field type: `Union{T,Nothing}`
-- Omitted => `nothing`
-- Provided => parse as `T`
-- Repeated => parse error
+Constraints:
+- `name` must be a symbol identifier.
+- At least one flag is required.
+- Flags must be string literals and valid option tokens.
+- Supported keywords are `help`, `help_name`, `env`, and `default`.
+- `help`, `help_name`, and `env` must be string literals if provided.
+- `help_name` must be non-empty and single-line.
+- `env` must be non-empty.
+- Not callable at runtime (placeholder macro outside DSL expansion).
 
 ---
 
@@ -307,17 +313,30 @@ Required positional.
 - Field type: `T`
 - Missing => parse error
 
-> `@POS_DEF T default name [help=...] [help_name=...]`
-> 
-Defaulted positional.
 
-- Field type: `T`
-- Uses converted default when omitted
-
-> `@POS_OPT T name [help=...] [help_name=...]`
+> `@POS_OPT T name [help=...] [help_name=...] [env="..."] [default=...]`
 Optional positional.
 
-- Field type: `Union{T,Nothing}`
+Behavior:
+- Produces a field of type `Union{T,Nothing}` when `default` is not provided.
+- Produces a field of type `T` when `default` is provided.
+- Value resolution order is:
+  1. Next positional token, if available
+  2. Environment variable value from `env="..."`
+  3. `default=...`
+  4. `nothing` (only when no default is provided)
+- CLI input and environment input are parsed as `T`.
+- `default` is converted to `T` using RunicCLI default conversion.
+
+Constraints:
+- `name` must be a symbol identifier.
+- Only keyword metadata is allowed (`help`, `help_name`, `env`, `default`).
+- `help`, `help_name`, and `env` must be string literals if provided.
+- `help_name` must be non-empty and single-line.
+- `env` must be non-empty.
+- Must appear before `@POS_REST` (if any).
+- Not callable at runtime (placeholder macro outside DSL expansion).
+
 
 > `@POS_REST T name [help=...] [help_name=...]`
 Variadic tail positional.

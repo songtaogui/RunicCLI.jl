@@ -1,6 +1,3 @@
-const _RC = @__MODULE__
-_gr(s::Symbol) = GlobalRef(_RC, s)
-
 function _compile_relation_checks(defs::Vector, kind::Symbol)
     checks = Expr[]
 
@@ -130,34 +127,3 @@ _compile_arg_requires_checks(req_defs) =
 
 _compile_arg_conflicts_checks(conf_defs) =
     _compile_relation_checks(conf_defs, :conflicts)
-
-function _build_relation_defs_exprs(gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs)
-    excl_expr = Expr(:vect, [Expr(:vect, QuoteNode.(g)...) for g in gdefs_excl]...)
-    incl_expr = Expr(:vect, [Expr(:vect, QuoteNode.(g)...) for g in gdefs_incl]...)
-
-    req_expr = Expr(:vect, [
-        :($(_gr(:ArgRequiresDef))(anchor=$(QuoteNode(rd.anchor)), targets=$(Expr(:vect, QuoteNode.(rd.targets)...))))
-        for rd in arg_requires_defs
-    ]...)
-
-    conf_expr = Expr(:vect, [
-        :($(_gr(:ArgConflictsDef))(anchor=$(QuoteNode(cd.anchor)), targets=$(Expr(:vect, QuoteNode.(cd.targets)...))))
-        for cd in arg_conflicts_defs
-    ]...)
-
-    return excl_expr, incl_expr, req_expr, conf_expr
-end
-
-
-function _compile_leftover_policy(allow_extra::Bool)
-    if allow_extra
-        return :(nothing)
-    else
-        return quote
-            if !isempty(_args)
-                local _hint = any($(_gr(:_looks_like_negative_number_token)), _args) ? " Hint: pass positional negative numbers after '--' (e.g. -- -1)." : ""
-                $(_gr(:_throw_arg_error))($(_gr(:_msg_unknown_or_unexpected_arguments))(_args, _hint))
-            end
-        end
-    end
-end

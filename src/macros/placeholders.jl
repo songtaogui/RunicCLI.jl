@@ -1,13 +1,8 @@
-# RunicCLI
-# macros/placeholders.jl
 
 @inline function _placeholder_macro_error(name::AbstractString)
     throw(ArgumentError(
         "$(name) can only be used inside @CMD_MAIN or @CMD_SUB blocks.\n" *
-        "Example:\n" *
-        "@CMD_MAIN MyCmd begin\n" *
-        "    @ARG_FLAG verbose \"-v\" \"--verbose\" help=\"Enable verbose output\"\n" *
-        "end"
+        "See `@doc $(name)` for details."
     ))
 end
 
@@ -231,55 +226,37 @@ end
 macro ARG_REQ(args...) _placeholder_macro_error("@ARG_REQ") end
 
 """
-    @ARG_DEF T default name flags... [help="..."] [help_name="..."]
+    @ARG_OPT T name flags... [help="..."] [help_name="..."] [env="..."] [default=...]
 
-Declare an optional option argument with a default value.
+Declare an optional option argument.
 
 Behavior:
-- Produces a field of type `T`.
-- If the option is not provided, `default` is converted to `T` via `convert(T, default)`.
-- If provided, the input value is parsed as `T`.
+- Produces a field of type `Union{T,Nothing}` when `default` is not provided.
+- Produces a field of type `T` when `default` is provided.
+- Value resolution order is:
+  1. CLI option value, if the option is present
+  2. Environment variable value from `env="..."`
+  3. `default=...`
+  4. `nothing` (only when no default is provided)
+- CLI input and environment input are parsed as `T`.
+- `default` is converted to `T` using RunicCLI default conversion.
 - Multiple occurrences of the same logical option are rejected.
 
 Constraints:
 - `name` must be a symbol identifier.
 - At least one flag is required.
 - Flags must be string literals and valid option tokens.
-- `default` must be convertible to `T`, otherwise command construction fails.
-- `help` and `help_name` must be string literals if provided.
-- Not callable at runtime (placeholder macro outside DSL expansion).
-
-Example:
-```julia
-@CMD_MAIN MyCLI begin
-    @ARG_DEF Int 8080 port "-p" "--port" help="Listening port"
-end
-```
-"""
-macro ARG_DEF(args...) _placeholder_macro_error("@ARG_DEF") end
-
-"""
-    @ARG_OPT T name flags... [help="..."] [help_name="..."]
-
-Declare an optional option argument represented as `Union{T,Nothing}`.
-
-Behavior:
-- Produces a field of type `Union{T,Nothing}`.
-- If omitted, value is `nothing`.
-- If provided, the option value is parsed as `T`.
-- Multiple occurrences of the same logical option are rejected.
-
-Constraints:
-- `name` must be a symbol identifier.
-- At least one flag is required.
-- Flags must be string literals and valid option tokens.
-- `help` and `help_name` must be string literals if provided.
+- Supported keywords are `help`, `help_name`, `env`, and `default`.
+- `help`, `help_name`, and `env` must be string literals if provided.
+- `help_name` must be non-empty and single-line.
+- `env` must be non-empty.
 - Not callable at runtime (placeholder macro outside DSL expansion).
 
 Example:
 ```julia
 @CMD_MAIN MyCLI begin
     @ARG_OPT String config "--config" help="Optional config file path"
+    @ARG_OPT Int port "-p" "--port" env="MYCLI_PORT" default=8080 help="Port to bind"
 end
 ```
 """
@@ -394,44 +371,27 @@ end
 macro POS_REQ(args...) _placeholder_macro_error("@POS_REQ") end
 
 """
-    @POS_DEF T default name [help="..."] [help_name="..."]
+    @POS_OPT T name [help="..."] [help_name="..."] [env="..."] [default=...]
 
-Declare a positional argument with a default value.
+Declare an optional positional argument.
 
 Behavior:
-- Produces a field of type `T`.
-- If a positional token is available, it is parsed as `T`.
-- Otherwise, `default` is converted to `T` via `convert(T, default)`.
+- Produces a field of type `Union{T,Nothing}` when `default` is not provided.
+- Produces a field of type `T` when `default` is provided.
+- Value resolution order is:
+  1. Next positional token, if available
+  2. Environment variable value from `env="..."`
+  3. `default=...`
+  4. `nothing` (only when no default is provided)
+- CLI input and environment input are parsed as `T`.
+- `default` is converted to `T` using RunicCLI default conversion.
 
 Constraints:
 - `name` must be a symbol identifier.
-- Only keyword metadata is allowed (`help`, `help_name`).
-- Must appear before `@POS_REST` (if any).
-- Default must be convertible to `T`.
-- Not callable at runtime (placeholder macro outside DSL expansion).
-
-Example:
-```julia
-@CMD_MAIN MyCLI begin
-    @POS_DEF Int 3 retries help="Retry count when omitted"
-end
-```
-"""
-macro POS_DEF(args...) _placeholder_macro_error("@POS_DEF") end
-
-"""
-    @POS_OPT T name [help="..."] [help_name="..."]
-
-Declare an optional positional argument represented as `Union{T,Nothing}`.
-
-Behavior:
-- Produces a field of type `Union{T,Nothing}`.
-- If a positional token is available, it is parsed as `T`.
-- If not available, value is `nothing`.
-
-Constraints:
-- `name` must be a symbol identifier.
-- Only keyword metadata is allowed (`help`, `help_name`).
+- Only keyword metadata is allowed (`help`, `help_name`, `env`, `default`).
+- `help`, `help_name`, and `env` must be string literals if provided.
+- `help_name` must be non-empty and single-line.
+- `env` must be non-empty.
 - Must appear before `@POS_REST` (if any).
 - Not callable at runtime (placeholder macro outside DSL expansion).
 
@@ -439,6 +399,7 @@ Example:
 ```julia
 @CMD_MAIN MyCLI begin
     @POS_OPT String output help="Optional output path"
+    @POS_OPT Int threads env="MYCLI_THREADS" default=4 help="Worker thread count"
 end
 ```
 """
@@ -690,6 +651,39 @@ Constraints:
 - Optional `msg` must be a string literal.
 - At most one custom message is allowed.
 - Not callable at runtime (placeholder macro outside DSL expansion).
+
+---
+
+## Built-in validator helpers
+
+### Numeric
+- [`v_min(minv)`](@ref)
+- [`v_max(maxv)`](@ref)
+- [`v_range(lo, hi; closed=true)`](@ref)
+
+### Membership
+- [`v_oneof(xs)`](@ref)
+- [`v_include(xs)`](@ref) (alias of `v_oneof`)
+- [`v_exclude(xs)`](@ref)
+
+### String / pattern
+- [`v_length(; min=nothing, max=nothing, eq=nothing)`](@ref)
+- [`v_prefix(prefix)`](@ref)
+- [`v_suffix(suffix)`](@ref)
+- [`v_regex(re::Regex)`](@ref)
+
+### Path
+- [`v_exists()`](@ref)
+- [`v_isfile()`](@ref)
+- [`v_isdir()`](@ref)
+- [`v_readable()`](@ref)
+- [`v_writable()`](@ref)
+
+### Composition
+- [`v_and(f1, f2, ...)`](@ref)
+- [`v_or(f1, f2, ...)`](@ref)
+
+---
 
 Example:
 ```julia

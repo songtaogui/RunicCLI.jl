@@ -1,3 +1,17 @@
+
+function _compile_leftover_policy(allow_extra::Bool)
+    if allow_extra
+        return :(nothing)
+    else
+        return quote
+            if !isempty(_args)
+                local _hint = any($(_gr(:_looks_like_negative_number_token)), _args) ? " Hint: pass positional negative numbers after '--' (e.g. -- -1)." : ""
+                $(_gr(:_throw_arg_error))($(_gr(:_msg_unknown_or_unexpected_arguments))(_args, _hint))
+            end
+        end
+    end
+end
+
 function _emit_provided_bookkeeping(ctor_args::Vector{Symbol})
     provided_init = Expr[]
     provided_finalize = Expr[]
@@ -86,8 +100,4 @@ function _emit_parser_function(
             return $(return_expr)
         end
     end
-end
-
-function _emit_argdefs(argdefs_expr::Vector{Expr})
-    return :(ArgDef[$(argdefs_expr...)])
 end

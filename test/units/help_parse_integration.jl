@@ -30,7 +30,7 @@ using RunicCLI
 
         @test err isa ArgHelpRequested
         @test occursin("USAGE:", err.message)
-        @test occursin("<port>::Int", err.message)
+        @test occursin("<Int", err.message)
         @test occursin("Source file", err.message)
         @test occursin("Run job", err.message)
     end

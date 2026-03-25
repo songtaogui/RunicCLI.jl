@@ -3,17 +3,19 @@ using RunicCLI
 
 @CMD_MAIN DemoCLI begin
     @CMD_USAGE "demo [OPTIONS] [SUBCOMMAND]"
+    @CMD_VERSION "0.1.2"
     @CMD_DESC "Integration test CLI for RunicCLI.jl"
     @CMD_EPILOG "Use --help on main or subcommands for details."
-    @ARG_DEF   Float64  0.5 ratio "-r" "--ratio"
+    @ARG_OPT Float64 ratio "-r" "--ratio" default=0.5 
 
     @CMD_SUB "run" "Run a task with positional arguments" begin
         @CMD_USAGE "demo [main-options] run [sub-options] <input> [output] [mode] [extra...]"
         @CMD_EPILOG "Example: demo -t 4 --ratio 0.5 run --format json file.txt"
         @ARG_REQ   String format   "-f" "--format" help="Required ARG for Run Looooooooooooooooooooooooooooooooooooong"
+        @ARG_OPT String abcd "-a" "--abcd" help="test ENV and Default." env="MYENV" default="MyDefaultString"
         @ALLOW_EXTRA
         @POS_REQ  String input
-        @POS_DEF  String "stdout" output
+        @POS_OPT  String output default="stdout" env="MYPOSENV"
         @POS_REST String extra
     end
 

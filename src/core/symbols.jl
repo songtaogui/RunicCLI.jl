@@ -1,0 +1,23 @@
+const SYM_USAGE   = Symbol("@CMD_USAGE")
+const SYM_DESC    = Symbol("@CMD_DESC")
+const SYM_EPILOG  = Symbol("@CMD_EPILOG")
+const SYM_VERSION = Symbol("@CMD_VERSION")
+const SYM_SUB     = Symbol("@CMD_SUB")
+const SYM_TEST    = Symbol("@ARG_TEST")
+const SYM_STREAM  = Symbol("@ARG_STREAM")
+
+const SYM_GROUP   = Symbol("@GROUP_EXCL")
+const SYM_GROUP_INCL = Symbol("@GROUP_INCL")
+const SYM_ARG_REQUIRES = Symbol("@ARG_REQUIRES")
+const SYM_ARG_CONFLICTS = Symbol("@ARG_CONFLICTS")
+const SYM_ALLOW   = Symbol("@ALLOW_EXTRA")
+
+const SYM_REQ     = Symbol("@ARG_REQ")
+const SYM_OPT     = Symbol("@ARG_OPT")
+const SYM_FLAG    = Symbol("@ARG_FLAG")
+const SYM_COUNT   = Symbol("@ARG_COUNT")
+const SYM_MULTI   = Symbol("@ARG_MULTI")
+
+const SYM_POS_REQ = Symbol("@POS_REQ")
+const SYM_POS_OPT = Symbol("@POS_OPT")
+const SYM_POS_RST = Symbol("@POS_REST")

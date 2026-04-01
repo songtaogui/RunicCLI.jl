@@ -1,7 +1,7 @@
 function _build_main_parser_expr(
     struct_name, usage, desc, epilog, version, allow_extra,
     fields, ctor_args, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr,
-    gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs,
+    gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs, arg_group_defs,
     sub_def_items, sub_parser_exprs, dispatch_branches, sub_help_branches, sub_version_branches, sub_names
 )
     main_parser_name = gensym(:parse_main)
@@ -11,7 +11,25 @@ function _build_main_parser_expr(
         :(_path), usage, desc, epilog, version,
         :(_main_argdefs),
         :($(_gr(:SubcommandDef))[$(sub_def_items...)]),
-        allow_extra, gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs
+        allow_extra, gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs, arg_group_defs
+    )
+
+    static_clidef_name = gensym(Symbol(struct_name, "_clidef"))
+
+    static_clidef_expr = _build_clidef_expr(
+        QuoteNode(string(struct_name)),
+        usage,
+        desc,
+        epilog,
+        version,
+        :($(_gr(:ArgDef))[$(argdefs_expr...)]),
+        :($(_gr(:SubcommandDef))[$(sub_def_items...)]),
+        allow_extra,
+        gdefs_excl,
+        gdefs_incl,
+        arg_requires_defs,
+        arg_conflicts_defs,
+        arg_group_defs
     )
 
     return esc(quote
@@ -20,6 +38,10 @@ function _build_main_parser_expr(
             subcommand::Union{Nothing,String}
             subcommand_args::Union{Nothing,NamedTuple}
         end
+
+        # const $(static_clidef_name) = $(static_clidef_expr)
+        $(static_clidef_name) = $(static_clidef_expr)
+        $(_gr(:CLIDEFREGISTRY))[$(struct_name)] = $(static_clidef_name)
 
         $(_emit_parser_function(
             main_parser_name,
@@ -94,5 +116,6 @@ function _build_main_parser_expr(
             return $(struct_name)($([:(getfield(_main_obj, $(QuoteNode(nm)))) for nm in ctor_args]...), nothing, nothing)
         end
 
+        $(_gr(:clidef))(::Type{$(struct_name)}) = $(static_clidef_name)
     end)
 end

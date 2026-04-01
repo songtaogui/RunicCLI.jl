@@ -225,38 +225,67 @@ end
 """
 macro ARG_REQ(args...) _placeholder_macro_error("@ARG_REQ") end
 
-"""
-    @ARG_OPT T name flags... [help="..."] [help_name="..."] [env="..."] [default=...]
 
-Declare an optional option argument.
+"""
+    @ARG_OPT T name flags... [help="..."] [help_name="..."] [env="..."] [default=...] [fallback=other_arg]
+
+Declare an optional single-valued option argument.
 
 Behavior:
-- Produces a field of type `Union{T,Nothing}` when `default` is not provided.
-- Produces a field of type `T` when `default` is provided.
-- Value resolution order is:
+- Produces a field of type `Union{T,Nothing}`.
+- Value resolution is performed in this order:
   1. CLI option value, if the option is present
   2. Environment variable value from `env="..."`
   3. `default=...`
-  4. `nothing` (only when no default is provided)
+  4. `nothing`
+- After that initial resolution, if the final value is still `nothing` and `fallback=other_arg` is provided,
+  the argument takes the final resolved value of `other_arg`.
 - CLI input and environment input are parsed as `T`.
 - `default` is converted to `T` using RunicCLI default conversion.
 - Multiple occurrences of the same logical option are rejected.
+
+Fallback semantics:
+- `fallback` refers to another declared argument by symbol name.
+- Fallback is final-value-based, not explicit-presence-based.
+- This means the fallback target may itself have been populated from CLI, environment, default, or its own fallback chain.
+- Fallback is applied only when the current argument resolves to `nothing`.
+- Fallback chains are allowed, but fallback cycles are rejected at macro-expansion time.
 
 Constraints:
 - `name` must be a symbol identifier.
 - At least one flag is required.
 - Flags must be string literals and valid option tokens.
-- Supported keywords are `help`, `help_name`, `env`, and `default`.
+- Supported keywords are `help`, `help_name`, `env`, `default`, and `fallback`.
 - `help`, `help_name`, and `env` must be string literals if provided.
 - `help_name` must be non-empty and single-line.
 - `env` must be non-empty.
+- `fallback` must be a symbol identifier naming another declared argument.
+- Fallback is supported only for optional value-bearing arguments.
+- The fallback target must be a value-bearing non-rest argument.
 - Not callable at runtime (placeholder macro outside DSL expansion).
 
-Example:
+Examples:
 ```julia
 @CMD_MAIN MyCLI begin
     @ARG_OPT String config "--config" help="Optional config file path"
     @ARG_OPT Int port "-p" "--port" env="MYCLI_PORT" default=8080 help="Port to bind"
+end
+```
+
+Using fallback:
+```julia
+@CMD_MAIN MyCLI begin
+    @ARG_OPT String output "--output" help="Primary output path"
+    @ARG_OPT String dest "--dest" fallback=output help="Alias that falls back to output"
+end
+```
+
+Fallback chain:
+```julia
+@CMD_MAIN MyCLI begin
+    @ARG_OPT String c "--c"
+    @ARG_OPT String b "--b" fallback=c
+    @ARG_OPT String a "--a" fallback=b
 end
 ```
 """
@@ -720,3 +749,60 @@ end
 ```
 """
 macro ALLOW_EXTRA(args...) _placeholder_macro_error("@ALLOW_EXTRA") end
+
+
+"""
+    @ARG_GROUP "title" arg1 arg2 ...
+
+Declare a help-display group for arguments.
+
+`@ARG_GROUP` does not change parsing, typing, sourcing, or validation semantics. It only affects how
+arguments are organized in generated help output by assigning the listed arguments to a named section.
+
+Behavior:
+- Creates a titled argument group in help rendering.
+- Each listed argument becomes a member of that group.
+- Group membership is metadata only; it does not imply mutual exclusion, requirement, or validation.
+- Both option-style and positional arguments may be grouped.
+- Arguments that are not assigned to any explicit group remain in the default help section.
+
+Constraints:
+- The first argument must be a non-empty String literal used as the group title.
+- At least one argument name must be provided after the title.
+- Each argument name must be a symbol identifier.
+- All referenced arguments must already be declared in the same command or subcommand block.
+- An argument may belong to at most one `@ARG_GROUP` within the same block.
+- Duplicate argument names inside the same `@ARG_GROUP` are rejected.
+- Not callable at runtime (placeholder macro outside DSL expansion).
+
+Examples:
+```julia
+@CMD_MAIN MyCLI begin
+    @ARG_REQ String host "--host" help="Server host"
+    @ARG_OPT Int port "--port" default=8080 help="Server port"
+    @ARG_FLAG verbose "-v" "--verbose" help="Verbose logging"
+    @POS_OPT String logfile help="Optional log file"
+
+    @ARG_GROUP "Server Options" host port
+    @ARG_GROUP "Runtime" verbose logfile
+end
+```
+
+Inside a subcommand:
+```julia
+@CMD_MAIN MyCLI begin
+    @CMD_SUB "serve" begin
+        @ARG_REQ String host "--host"
+        @ARG_OPT Int port "--port" default=8080
+        @ARG_FLAG reload "--reload"
+
+        @ARG_GROUP "Network" host port
+        @ARG_GROUP "Development" reload
+    end
+end
+```
+
+See also:
+[`@CMD_MAIN`](@ref), [`render_help`](@ref)
+"""
+macro ARG_GROUP(args...) _placeholder_macro_error("@ARG_GROUP") end

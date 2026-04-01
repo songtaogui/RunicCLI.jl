@@ -11,6 +11,7 @@ const SYM_GROUP_INCL = Symbol("@GROUP_INCL")
 const SYM_ARG_REQUIRES = Symbol("@ARG_REQUIRES")
 const SYM_ARG_CONFLICTS = Symbol("@ARG_CONFLICTS")
 const SYM_ALLOW   = Symbol("@ALLOW_EXTRA")
+const SYM_ARG_GROUP = Symbol("@ARG_GROUP")
 
 const SYM_REQ     = Symbol("@ARG_REQ")
 const SYM_OPT     = Symbol("@ARG_OPT")

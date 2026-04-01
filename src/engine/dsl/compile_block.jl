@@ -1,4 +1,3 @@
-
 function _handle_group_excl!(ctx::_CompileCtx, node::Expr)
     length(node.args) >= 4 || throw(ArgumentError("@GROUP_EXCL requires at least 2 argument names"))
     syms = _collect_symbol_args(node, 3, "@GROUP_EXCL", "argument name")
@@ -33,6 +32,20 @@ function _handle_arg_conflicts!(ctx::_CompileCtx, node::Expr)
     anchor in targets && throw(ArgumentError("@ARG_CONFLICTS anchor argument must not appear in targets"))
     _ensure_no_duplicates!(targets, "@ARG_CONFLICTS", "target arguments")
     push!(ctx.arg_conflicts_defs, ArgConflictsDef(anchor=anchor, targets=targets))
+end
+
+function _handle_arg_group!(ctx::_CompileCtx, node::Expr)
+    length(node.args) >= 4 || throw(ArgumentError("@ARG_GROUP requires a title String and at least one argument name"))
+
+    title = node.args[3]
+    title isa String || throw(ArgumentError("@ARG_GROUP title must be a String literal"))
+    isempty(strip(title)) && throw(ArgumentError("@ARG_GROUP title must not be empty"))
+
+    members = _collect_symbol_args(node, 4, "@ARG_GROUP", "argument name")
+    _ensure_min_count!(members, 1, "@ARG_GROUP", "argument names")
+    _ensure_no_duplicates!(members, "@ARG_GROUP", "argument names")
+
+    push!(ctx.arg_group_defs, ArgGroupDef(title=title, members=members))
 end
 
 function _handle_arg_test!(ctx::_CompileCtx, node::Expr)
@@ -96,6 +109,7 @@ const _COMPILE_BLOCK_HANDLERS = Dict{Symbol,Function}(
     SYM_GROUP_INCL => _handle_group_incl!,
     SYM_ARG_REQUIRES => _handle_arg_requires!,
     SYM_ARG_CONFLICTS => _handle_arg_conflicts!,
+    SYM_ARG_GROUP => _handle_arg_group!,
     SYM_TEST => _handle_arg_test!,
     SYM_STREAM => _handle_arg_stream!,
 )
@@ -128,6 +142,6 @@ function _compile_cmd_block(block::Expr)
            ctx.group_defs_excl,
            ctx.group_defs_incl,
            ctx.arg_requires_defs,
-           ctx.arg_conflicts_defs
+           ctx.arg_conflicts_defs,
+           ctx.arg_group_defs
 end
-

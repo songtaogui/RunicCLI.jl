@@ -2,7 +2,7 @@
 
 julia_version = "1.12.4"
 manifest_format = "2.0"
-project_hash = "752ecf9ec26630cceb4f464a5e159948c6488aba"
+project_hash = "36586dbf4fa414bd198a1f6d6e79504ac95719a5"
 
 [[deps.Dates]]
 deps = ["Printf"]
@@ -19,17 +19,22 @@ deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 version = "1.11.0"
 
+[[deps.Reexport]]
+git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
+uuid = "189a3867-3050-52da-a836-e630ba90ab69"
+version = "1.2.2"
+
 [[deps.RunicCLI]]
-deps = ["RunicCLIRuntime"]
+deps = ["MacroTools", "RunicCLIRuntime"]
 path = "."
 uuid = "67ca3c63-b4b2-4ee3-a21a-d0ea65885ced"
-version = "0.1.0"
+version = "0.2.0"
 
 [[deps.RunicCLIRuntime]]
 deps = ["TOML", "TextWrap"]
-path = "/home/stgui/sftw/02_diy/00_stgui/RunicCLI_SPLIT/RunicCLIRuntime"
+path = "/home/stgui/sftw/02_diy/00_stgui/RunicCLIRuntime/"
 uuid = "2d9a0462-f75e-4e7b-a4a8-2f5f7a313918"
-version = "0.1.0"
+version = "0.2.0"
 
 [[deps.TOML]]
 deps = ["Dates"]

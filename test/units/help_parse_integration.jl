@@ -1,5 +1,3 @@
-using Test
-using RunicCLI
 
 @testset "parse_cli and run_cli help integration" begin
     @CMD_MAIN HelpDemo begin

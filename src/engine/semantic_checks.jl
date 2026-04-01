@@ -36,4 +36,58 @@ function _validate_relations!(ctx::_CompileCtx)
             _validate_option_ref!(ctx, "@ARG_CONFLICTS", s)
         end
     end
+
+    seen_members = Dict{Symbol,String}()
+    for gd in ctx.arg_group_defs
+        for s in gd.members
+            _ensure_declared!(ctx, "@ARG_GROUP", s)
+            if haskey(seen_members, s)
+                throw(ArgumentError("@ARG_GROUP argument $(s) is already assigned to group $(repr(seen_members[s]))"))
+            end
+            seen_members[s] = gd.title
+        end
+    end
+
+    for nm in keys(ctx.fallback_map)
+        _ensure_declared!(ctx, "fallback", nm)
+    end
+
+    for (src, dst) in ctx.fallback_map
+        _ensure_declared!(ctx, "fallback", src)
+        _ensure_declared!(ctx, "fallback", dst)
+
+        src_kind = get(ctx.name_kind, src, AK_OPTION)
+        dst_kind = get(ctx.name_kind, dst, AK_OPTION)
+
+        src_kind in (AK_OPTION, AK_POS_OPTIONAL) ||
+            throw(ArgumentError("fallback source must be an optional value-bearing argument: $(src)"))
+
+        dst_kind in (AK_OPTION, AK_POS_OPTIONAL, AK_POS_REQUIRED) ||
+            throw(ArgumentError("fallback target must be a value-bearing non-rest argument: $(dst)"))
+    end
+
+    _validate_fallback_cycles!(ctx.fallback_map)
+end
+
+function _validate_fallback_cycles!(fallback_map::Dict{Symbol,Symbol})
+    visited = Dict{Symbol,Int}()
+
+    function dfs(s::Symbol)
+        state = get(visited, s, 0)
+        if state == 1
+            throw(ArgumentError("fallback cycle detected involving argument $(s)"))
+        elseif state == 2
+            return
+        end
+
+        visited[s] = 1
+        if haskey(fallback_map, s)
+            dfs(fallback_map[s])
+        end
+        visited[s] = 2
+    end
+
+    for s in keys(fallback_map)
+        dfs(s)
+    end
 end

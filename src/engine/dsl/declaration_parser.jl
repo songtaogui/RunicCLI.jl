@@ -36,18 +36,21 @@ function _extract_decl_meta!(
     allow_help_name::Bool=true,
     allow_env::Bool=false,
     allow_default::Bool=false,
+    allow_fallback::Bool=false,
     macro_name::String=""
 )
     help = ""
     help_name = ""
     env_name = nothing
     default_expr = nothing
+    fallback_name = nothing
     remain = Any[]
 
     seen_help = false
     seen_help_name = false
     seen_env = false
     seen_default = false
+    seen_fallback = false
 
     for x in rest
         p = _kw_pair(x)
@@ -93,6 +96,14 @@ function _extract_decl_meta!(
             default_expr = v
             seen_default = true
 
+        elseif k == :fallback
+            allow_fallback || throw(ArgumentError("$(macro_name) does not support fallback=..."))
+            seen_fallback && throw(ArgumentError("$(macro_name) duplicate keyword: fallback"))
+            fb = _coerce_symbol_identifier(v; allow_wrapped=true)
+            fb === nothing && throw(ArgumentError("$(macro_name) fallback must be a Symbol identifier"))
+            fallback_name = fb
+            seen_fallback = true
+
         else
             throw(ArgumentError("$(macro_name) unknown keyword: $(k)"))
         end
@@ -104,6 +115,7 @@ function _extract_decl_meta!(
         env=env_name,
         has_default=seen_default,
         default=default_expr,
+        fallback=fallback_name,
         remain=remain
     )
 end

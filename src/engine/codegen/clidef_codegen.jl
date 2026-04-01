@@ -1,4 +1,3 @@
-
 function _build_relation_defs_exprs(gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs)
     excl_expr = Expr(:vect, [Expr(:vect, QuoteNode.(g)...) for g in gdefs_excl]...)
     incl_expr = Expr(:vect, [Expr(:vect, QuoteNode.(g)...) for g in gdefs_incl]...)
@@ -16,13 +15,26 @@ function _build_relation_defs_exprs(gdefs_excl, gdefs_incl, arg_requires_defs, a
     return excl_expr, incl_expr, req_expr, conf_expr
 end
 
+function _build_arg_group_defs_expr(arg_group_defs)
+    return Expr(:vect, [
+        :($(_gr(:ArgGroupDef))(title=$(gd.title), members=$(Expr(:vect, QuoteNode.(gd.members)...))))
+        for gd in arg_group_defs
+    ]...)
+end
 
 function _emit_argdefs(argdefs_expr::Vector{Expr})
     return :(ArgDef[$(argdefs_expr...)])
 end
 
-function _build_clidef_expr(cmd_name_expr, usage_expr, desc_expr, epilog_expr, version_expr, args_expr, subcommands_expr, allow_extra, gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs)
-    excl_expr, incl_expr, req_expr, conf_expr = _build_relation_defs_exprs(gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs)
+function _build_clidef_expr(
+    cmd_name_expr, usage_expr, desc_expr, epilog_expr, version_expr,
+    args_expr, subcommands_expr, allow_extra,
+    gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs, arg_group_defs
+)
+    excl_expr, incl_expr, req_expr, conf_expr =
+        _build_relation_defs_exprs(gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs)
+
+    arg_groups_expr = _build_arg_group_defs_expr(arg_group_defs)
 
     return :($(_gr(:CliDef))(
         cmd_name = $(cmd_name_expr),
@@ -36,17 +48,20 @@ function _build_clidef_expr(cmd_name_expr, usage_expr, desc_expr, epilog_expr, v
         mutual_exclusion_groups = $(excl_expr),
         mutual_inclusion_groups = $(incl_expr),
         arg_requires = $(req_expr),
-        arg_conflicts = $(conf_expr)
+        arg_conflicts = $(conf_expr),
+        arg_groups = $(arg_groups_expr)
     ))
 end
 
 function _build_subcommand_def_expr(
     sub_name, sub_desc, sub_usage, sub_epilog, sub_version,
     s_argdefs_expr, sub_allow_extra,
-    s_gdefs_excl, s_gdefs_incl, s_arg_requires_defs, s_arg_conflicts_defs
+    s_gdefs_excl, s_gdefs_incl, s_arg_requires_defs, s_arg_conflicts_defs, s_arg_group_defs
 )
     s_excl_expr, s_incl_expr, s_req_expr, s_conf_expr =
         _build_relation_defs_exprs(s_gdefs_excl, s_gdefs_incl, s_arg_requires_defs, s_arg_conflicts_defs)
+
+    s_arg_groups_expr = _build_arg_group_defs_expr(s_arg_group_defs)
 
     return :($(_gr(:SubcommandDef))(
         name=$(sub_name),
@@ -60,6 +75,7 @@ function _build_subcommand_def_expr(
         mutual_exclusion_groups=$(s_excl_expr),
         mutual_inclusion_groups=$(s_incl_expr),
         arg_requires=$(s_req_expr),
-        arg_conflicts=$(s_conf_expr)
+        arg_conflicts=$(s_conf_expr),
+        arg_groups=$(s_arg_groups_expr)
     ))
 end

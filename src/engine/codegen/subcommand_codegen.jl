@@ -1,4 +1,3 @@
-
 @inline function _build_subcommand_help_branch(sub_name, local_sub_def_expr)
     quote
         if _sub == $(sub_name)
@@ -32,7 +31,7 @@ function _build_subcommand_bundle(normalized_sub_nodes::Vector{NormalizedSubCmd}
         sub_main_block = Expr(:block, sub_main_nodes...)
 
         s_fields, s_option_parse_stmts, s_positional_parse_stmts, s_post_stmts, s_argdefs_expr,
-        s_gdefs_excl, s_gdefs_incl, s_arg_requires_defs, s_arg_conflicts_defs = _compile_cmd_block(sub_main_block)
+        s_gdefs_excl, s_gdefs_incl, s_arg_requires_defs, s_arg_conflicts_defs, s_arg_group_defs = _compile_cmd_block(sub_main_block)
 
         s_ctor_args = Symbol[f.args[1] for f in s_fields]
         s_parser_name = gensym(Symbol("parse_sub_", replace(sub_name, r"[^A-Za-z0-9_]" => "_")))
@@ -57,7 +56,7 @@ function _build_subcommand_bundle(normalized_sub_nodes::Vector{NormalizedSubCmd}
             sub_name, sub_usage, sub_desc, sub_epilog, sub_version,
             :($(_gr(:ArgDef))[$(s_argdefs_expr...)]),
             :($(_gr(:SubcommandDef))[]),
-            sub_allow_extra, s_gdefs_excl, s_gdefs_incl, s_arg_requires_defs, s_arg_conflicts_defs
+            sub_allow_extra, s_gdefs_excl, s_gdefs_incl, s_arg_requires_defs, s_arg_conflicts_defs, s_arg_group_defs
         )
 
         push!(sub_help_branches, _build_subcommand_help_branch(sub_name, local_sub_def_expr))
@@ -73,7 +72,7 @@ function _build_subcommand_bundle(normalized_sub_nodes::Vector{NormalizedSubCmd}
         push!(sub_def_items, _build_subcommand_def_expr(
             sub_name, sub_desc, sub_usage, sub_epilog, sub_version,
             s_argdefs_expr, sub_allow_extra,
-            s_gdefs_excl, s_gdefs_incl, s_arg_requires_defs, s_arg_conflicts_defs
+            s_gdefs_excl, s_gdefs_incl, s_arg_requires_defs, s_arg_conflicts_defs, s_arg_group_defs
         ))
     end
 

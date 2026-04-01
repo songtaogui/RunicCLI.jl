@@ -1,5 +1,4 @@
-1. Documents
-
+1. Docs
 2. lazy command handler 支持
     - DSL 层声明某子命令对应模块/函数
     - RunicCLI 自动在 dispatch 时延迟加载并 invokelatest

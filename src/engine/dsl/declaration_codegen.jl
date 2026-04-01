@@ -18,6 +18,7 @@ function _parse_decl_pipeline!(ctx::_CompileCtx, spec::ArgDeclSpec, node::Expr)
         allow_help_name=true,
         allow_env=spec.allow_env,
         allow_default=spec.allow_default,
+        allow_fallback=spec.allow_fallback,
         macro_name=spec.macro_name
     )
 
@@ -27,7 +28,7 @@ function _parse_decl_pipeline!(ctx::_CompileCtx, spec::ArgDeclSpec, node::Expr)
         isempty(flags) && throw(ArgumentError("$(spec.macro_name) requires at least one flag"))
         _register_flags!(ctx, flags, nm, spec.macro_name)
     else
-        isempty(meta.remain) || throw(ArgumentError("$(spec.macro_name) supports only keyword metadata: help=\"...\", help_name=\"...\"$(spec.allow_env ? ", env=\"...\"" : "")$(spec.allow_default ? ", default=..." : "")"))
+        isempty(meta.remain) || throw(ArgumentError("$(spec.macro_name) supports only keyword metadata: help=\"...\", help_name=\"...\"$(spec.allow_env ? ", env=\"...\"" : "")$(spec.allow_default ? ", default=..." : "")$(spec.allow_fallback ? ", fallback=other_arg" : "")"))
     end
 
     push!(ctx.declared_names, nm)
@@ -42,6 +43,7 @@ function _parse_decl_pipeline!(ctx::_CompileCtx, spec::ArgDeclSpec, node::Expr)
         env=meta.env,
         has_default=meta.has_default,
         default=meta.default,
+        fallback=meta.fallback,
         style=spec.style,
         kind=spec.kind
     )
@@ -64,12 +66,13 @@ function _emit_decl_opt_required!(ctx::_CompileCtx, d)
 end
 
 function _emit_decl_opt_optional!(ctx::_CompileCtx, d)
-    nm, T, flags, help, help_name, env = d.nm, d.T, d.flags, d.help, d.help_name, d.env
+    nm, T, flags, help, help_name, env, fallback = d.nm, d.T, d.flags, d.help, d.help_name, d.env, d.fallback
     has_default, default_expr = d.has_default, d.default
     provided_sym = Symbol("_provided_", nm)
     tmp_sym = Symbol("_tmp_", nm)
+    fallback_applied_sym = Symbol("_fallback_applied_", nm)
 
-    fieldT = has_default ? T : :(Union{$(T),Nothing})
+    fieldT = :(Union{$(T),Nothing})
 
     push!(ctx.fields, :($(nm)::$(fieldT)))
     push!(ctx.option_parse_stmts, quote
@@ -92,7 +95,19 @@ function _emit_decl_opt_optional!(ctx::_CompileCtx, d)
             else
                 nothing
             end
+
+        local $(fallback_applied_sym) = false
     end)
+
+    if fallback !== nothing
+        ctx.fallback_map[nm] = fallback
+        push!(ctx.post_stmts, quote
+            if isnothing($(nm)) && !isnothing($(fallback))
+                $(nm) = $(fallback)
+                $(fallback_applied_sym) = true
+            end
+        end)
+    end
 
     push!(ctx.argdefs_expr, :($(_gr(:ArgDef))(
         kind=$(_gr(:AK_OPTION)),
@@ -103,9 +118,11 @@ function _emit_decl_opt_optional!(ctx::_CompileCtx, d)
         default=$(has_default ? default_expr : nothing),
         help=$(help),
         help_name=$(help_name),
-        env=$(env)
+        env=$(env),
+        fallback=$(fallback === nothing ? nothing : QuoteNode(fallback))
     )))
 end
+
 
 function _emit_decl_flag!(ctx::_CompileCtx, d)
     nm, flags, help, help_name = d.nm, d.flags, d.help, d.help_name
@@ -165,12 +182,13 @@ function _emit_decl_pos_required!(ctx::_CompileCtx, d)
 end
 
 function _emit_decl_pos_optional!(ctx::_CompileCtx, d)
-    nm, T, help, help_name, env = d.nm, d.T, d.help, d.help_name, d.env
+    nm, T, help, help_name, env, fallback = d.nm, d.T, d.help, d.help_name, d.env, d.fallback
     has_default, default_expr = d.has_default, d.default
     provided_sym = Symbol("_provided_", nm)
+    fallback_applied_sym = Symbol("_fallback_applied_", nm)
     ctx.seen_pos_rest && throw(ArgumentError("@POS_REST must be the last positional declaration"))
 
-    fieldT = has_default ? T : :(Union{$(T),Nothing})
+    fieldT = :(Union{$(T),Nothing})
 
     push!(ctx.fields, :($(nm)::$(fieldT)))
     push!(ctx.positional_parse_stmts, quote
@@ -192,7 +210,19 @@ function _emit_decl_pos_optional!(ctx::_CompileCtx, d)
             else
                 nothing
             end
+
+        local $(fallback_applied_sym) = false
     end)
+
+    if fallback !== nothing
+        ctx.fallback_map[nm] = fallback
+        push!(ctx.post_stmts, quote
+            if isnothing($(nm)) && !isnothing($(fallback))
+                $(nm) = $(fallback)
+                $(fallback_applied_sym) = true
+            end
+        end)
+    end
 
     push!(ctx.argdefs_expr, :($(_gr(:ArgDef))(
         kind=$(_gr(:AK_POS_OPTIONAL)),
@@ -201,9 +231,11 @@ function _emit_decl_pos_optional!(ctx::_CompileCtx, d)
         default=$(has_default ? default_expr : nothing),
         help=$(help),
         help_name=$(help_name),
-        env=$(env)
+        env=$(env),
+        fallback=$(fallback === nothing ? nothing : QuoteNode(fallback))
     )))
 end
+
 
 function _emit_decl_pos_rest!(ctx::_CompileCtx, d)
     nm, T, help, help_name = d.nm, d.T, d.help, d.help_name

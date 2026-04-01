@@ -67,7 +67,7 @@ function build_cmd_main_expr(struct_name, block)
     end
 
     main_block = Expr(:block, main_nodes...)
-    fields, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr, gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs =
+    fields, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr, gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs, arg_group_defs =
         _compile_cmd_block(main_block)
 
     ctor_args = Symbol[f.args[1] for f in fields]
@@ -78,7 +78,7 @@ function build_cmd_main_expr(struct_name, block)
     return _build_main_parser_expr(
         struct_name, usage, desc, epilog, version, allow_extra,
         fields, ctor_args, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr,
-        gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs,
+        gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs, arg_group_defs,
         sub_def_items, sub_parser_exprs, dispatch_branches, sub_help_branches, sub_version_branches, sub_names
     )
 end

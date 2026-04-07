@@ -3,3 +3,6 @@
 - auto generate `-h, --help` and `-V, --version` if available.
 - auto adjust `wrap_width` based on terminal width if `wrap_with=0 or nothing`
 - Redesign Validators, now add many usefull validators and docstring.
+
+# V0.2.3
+- RunicCLIRuntime: add additional path/file/dir validators and tests.

@@ -1,5 +1,6 @@
 using Test
 using RunicCLI
+using Dates
 
 include("units/macro_compile_errors.jl")
 include("units/parser_utils.jl")

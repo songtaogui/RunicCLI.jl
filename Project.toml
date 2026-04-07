@@ -1,6 +1,6 @@
 name = "RunicCLI"
 uuid = "67ca3c63-b4b2-4ee3-a21a-d0ea65885ced"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["songtaogui<songtaogui@sina.com>"]
 
 [deps]

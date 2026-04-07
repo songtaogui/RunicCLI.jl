@@ -44,6 +44,8 @@ function _extract_decl_meta!(
     env_name = nothing
     default_expr = nothing
     fallback_name = nothing
+    vfun_expr = nothing
+    vmsg_text = ""
     remain = Any[]
 
     seen_help = false
@@ -51,6 +53,8 @@ function _extract_decl_meta!(
     seen_env = false
     seen_default = false
     seen_fallback = false
+    seen_vfun = false
+    seen_vmsg = false
 
     for x in rest
         p = _kw_pair(x)
@@ -67,7 +71,7 @@ function _extract_decl_meta!(
             seen_help && throw(ArgumentError("$(macro_name) duplicate keyword: help"))
             s = _string_literal_value(v)
             s === nothing && throw(ArgumentError("$(macro_name) help must be a String literal"))
-            occursin('\n', s) && throw(ArgumentError("$(macro_name) help must be a single-line String (newline is not allowed)"))
+            # occursin('\n', s) && throw(ArgumentError("$(macro_name) help must be a single-line String (newline is not allowed)"))
             help = s
             seen_help = true
 
@@ -104,10 +108,25 @@ function _extract_decl_meta!(
             fallback_name = fb
             seen_fallback = true
 
+        elseif k == :vfun
+            seen_vfun && throw(ArgumentError("$(macro_name) duplicate keyword: vfun"))
+            vfun_expr = v
+            seen_vfun = true
+
+        elseif k == :vmsg
+            seen_vmsg && throw(ArgumentError("$(macro_name) duplicate keyword: vmsg"))
+            s = _string_literal_value(v)
+            s === nothing && throw(ArgumentError("$(macro_name) vmsg must be a String literal"))
+            vmsg_text = s
+            seen_vmsg = true
+
         else
             throw(ArgumentError("$(macro_name) unknown keyword: $(k)"))
         end
     end
+
+    seen_vmsg && !seen_vfun && throw(ArgumentError("$(macro_name) vmsg requires vfun"))
+    seen_vfun || (vmsg_text = "")
 
     return (
         help=help,
@@ -116,6 +135,8 @@ function _extract_decl_meta!(
         has_default=seen_default,
         default=default_expr,
         fallback=fallback_name,
+        vfun=vfun_expr,
+        vmsg=vmsg_text,
         remain=remain
     )
 end

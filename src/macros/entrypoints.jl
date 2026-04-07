@@ -17,13 +17,13 @@ In practical terms, `@CMD_MAIN` lets you describe your CLI once using macros, an
 2. A constructor  
    `TypeName(argv::Vector{String}=ARGS; allow_empty_option_value=false, env=ENV, config=Dict(), config_file=nothing)`.
 3. Built-in support for `-h` / `--help`.
-4. Built-in support for `-V` / `--version` via `@CMD_VERSION`.
+4. Built-in support for `-V` / `--version`.
 5. Main-command and subcommand parsing.
 6. Typed fields representing parsed values.
 7. Validation and argument-relationship enforcement.
 8. Optional value sourcing from environment variables and config files.
 9. Help-display grouping via `@ARG_GROUP`.
-10. Final-value fallback resolution for optional value-bearing arguments via `fallback=...`.
+10. Final-value fallback resolution for optional value-bearing arguments.
 
 ---
 
@@ -113,15 +113,16 @@ Each metadata macro may appear at most once in the main block.
 
 ### Option-style arguments
 
-#### `@ARG_REQ T name flags... [help="..."] [help_name="..."]`
+#### `@ARG_REQ T name flags... [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]`
 
 Declare a required single-valued option.
 
 - Result field type: `T`
 - Parsing requirement: one of the declared flags must appear with a value
 - Help kind: required option
+- Optional inline validation via `vfun` / `vmsg`
 
-#### `@ARG_OPT T name flags... [help="..."] [help_name="..."] [env="..."] [default=...] [fallback=other_arg]`
+#### `@ARG_OPT T name flags... [help="..."] [help_name="..."] [env="..."] [default=...] [fallback=other_arg] [vfun=...] [vmsg="..."]`
 
 Declare an optional single-valued option.
 
@@ -134,46 +135,61 @@ Declare an optional single-valued option.
 - If the value is still `nothing`, `fallback=other_arg` may copy the final resolved value of another declared argument
 - Fallback is final-value-based, not explicit-presence-based
 - Fallback cycles are rejected
+- Optional inline validation via `vfun` / `vmsg` (applied when value is non-`nothing`)
 
-#### `@ARG_FLAG name flags... [help="..."] [help_name="..."]`
+#### `@ARG_FLAG name flags... [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]`
 
 Declare a boolean switch.
 
 - Result field type: `Bool`
 - `true` if present at least once, otherwise `false`
+- Optional inline validation via `vfun` / `vmsg`
 
-#### `@ARG_COUNT name flags... [help="..."] [help_name="..."]`
+#### `@ARG_COUNT name flags... [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]`
 
 Declare a counting flag.
 
 - Result field type: `Int`
 - Counts the number of occurrences across all declared aliases
+- Optional inline validation via `vfun` / `vmsg`
 
-#### `@ARG_MULTI T name flags... [help="..."] [help_name="..."]`
+#### `@ARG_MULTI T name flags... [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]`
 
 Declare a repeatable valued option.
 
 - Result field type: `Vector{T}`
 - All provided values are collected in occurrence order
+- Optional inline validation via `vfun` / `vmsg` (applied element-wise)
 
 ### Positional arguments
 
-#### `@POS_REQ T name [help="..."] [help_name="..."]`
-Required positional (`T`)
+#### `@POS_REQ T name [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]`
+Required positional (`T`) with optional inline validation
 
-#### `@POS_OPT T name [help="..."] [help_name="..."] [env="..."] [default=...] [fallback=other_arg]`
-Optional positional (`Union{T,Nothing}`) with the same fallback semantics as `@ARG_OPT`
+#### `@POS_OPT T name [help="..."] [help_name="..."] [env="..."] [default=...] [fallback=other_arg] [vfun=...] [vmsg="..."]`
+Optional positional (`Union{T,Nothing}`) with the same fallback semantics as `@ARG_OPT` and optional inline validation
 
-#### `@POS_REST T name [help="..."] [help_name="..."]`
-Rest positional (`Vector{T}`), must be last, and only one allowed
+#### `@POS_REST T name [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]`
+Rest positional (`Vector{T}`), must be last, and only one allowed, with optional element-wise inline validation
 
 ---
 
 ## Validation and constraints
 
-### `@ARG_TEST name fn [msg]`
+### Inline declaration validation via `vfun` / `vmsg`
 
-Apply a post-parse validator to a single argument (skip when value is `nothing`).
+All argument declaration macros support inline validator metadata:
+
+- `vfun=...` — validator callable
+- `vmsg="..."` — custom failure message
+- `vmsg` requires `vfun`
+
+Inline validation runs post-parse and is equivalent in intent to declaration-local `@ARG_TEST` / `@ARG_STREAM` behavior,
+with scalar-vs-vector handling determined by declaration kind.
+
+### `@ARG_TEST name... fn [msg]`
+
+Apply a post-parse validator to one or more arguments (skip when value is `nothing`).
 
 ### `@ARG_STREAM name fn [msg]`
 
@@ -181,13 +197,14 @@ Apply validation element-wise for vector-like values, with scalar fallback.
 
 ### Built-in validator helpers
 
-Use built-ins from `RunicCLI` to reduce manual lambdas:
+Use built-ins from `RunicCLIRuntime` to reduce manual lambdas:
 
-- Numeric: [`v_min`](@ref), [`v_max`](@ref), [`v_range`](@ref)
-- Set membership: [`v_oneof`](@ref), [`v_include`](@ref), [`v_exclude`](@ref)
-- String/pattern: [`v_length`](@ref), [`v_prefix`](@ref), [`v_suffix`](@ref), [`v_regex`](@ref)
-- Path checks: [`v_exists`](@ref), [`v_isfile`](@ref), [`v_isdir`](@ref), [`v_readable`](@ref), [`v_writable`](@ref)
-- Composition: [`v_and`](@ref), [`v_or`](@ref)
+For example: (See `RunicCLIRuntime` for all available validators)
+- Numeric: [`V_num_min`](@ref), [`V_num_max`](@ref), [`V_num_range`](@ref)
+- Set membership: [`V_any_oneof`](@ref), [`V_any_include`](@ref), [`V_any_exclude`](@ref)
+- String/pattern: [`V_str_length`](@ref), [`V_str_prefix`](@ref), [`V_str_suffix`](@ref), [`V_str_regex`](@ref)
+- Path checks: [`V_path_exists`](@ref), [`V_path_isfile`](@ref), [`V_path_isdir`](@ref), [`V_path_readable`](@ref), [`V_path_writable`](@ref)
+- Composition: [`V_AND`](@ref), [`V_OR`](@ref)
 
 See [`@ARG_TEST`](@ref) for examples of combining these helpers and writing custom validators.
 
@@ -329,16 +346,15 @@ Practical precedence for option-style values before DSL-level fallback:
     @ARG_OPT String dest "--dest" fallback=output help="Destination path; falls back to output"
 
     @ARG_OPT Int port "-p" "--port" env="MYCLI_PORT" default=8080 help="Server port"
-    @ARG_MULTI String tag "-t" "--tag" help="Repeatable tag"
-    @ARG_TEST port v_and(v_min(1), v_max(65535)) "port must be 1..65535"
-    @ARG_STREAM tag v_length(min=1) "tag must be non-empty"
+    @ARG_MULTI String tag "-t" "--tag" help="Repeatable tag" vfun=V_str_length(min=1) vmsg="tag must be non-empty"
+    @ARG_TEST port V_AND(V_num_min(1), V_num_max(65535)) "port must be 1..65535"
 
     @ARG_GROUP "Output" output dest
     @ARG_GROUP "Server Options" port tag
 
     @CMD_SUB "serve" "Run server" begin
         @CMD_VERSION "mycli serve 1.2.3"
-        @ARG_REQ String host "--host"
+        @ARG_REQ String host "--host" vfun=x -> !isempty(strip(x)) vmsg="host must not be blank"
         @ARG_FLAG reload "--reload"
         @ARG_GROUP "Serve Options" host reload
     end

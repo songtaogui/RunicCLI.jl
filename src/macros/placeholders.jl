@@ -198,7 +198,7 @@ end
 macro CMD_SUB(args...) _placeholder_macro_error("@CMD_SUB") end
 
 """
-    @ARG_REQ T name flags... [help="..."] [help_name="..."]
+    @ARG_REQ T name flags... [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]
 
 Declare a required option argument with a single value.
 
@@ -207,12 +207,16 @@ Behavior:
 - The option must be provided exactly once; missing value triggers a parse error.
 - Multiple occurrences of the same logical option are rejected.
 - Input text is converted using RunicCLI value parsing (`_parse_value`).
+- If `vfun` is provided, post-parse validation is applied as `vfun(value) == true`.
+- If `vmsg` is provided, it is used as custom failure text.
+- `vmsg` requires `vfun`.
 
 Constraints:
 - `name` must be a symbol identifier.
 - At least one flag is required.
 - Flags must be string literals and valid option tokens (e.g. `"-p"`, `"--port"`).
-- `help` and `help_name` must be string literals if provided.
+- `help`, `help_name`, and `vmsg` must be string literals if provided.
+- `help_name` must be non-empty and single-line.
 - Flags must be globally unique across all option-style arguments in the same command.
 - Not callable at runtime (placeholder macro outside DSL expansion).
 
@@ -220,6 +224,7 @@ Example:
 ```julia
 @CMD_MAIN MyCLI begin
     @ARG_REQ Int port "-p" "--port" help="Port to bind" help_name="PORT"
+    @ARG_REQ Int threads "--threads" vfun=V_num_min(1) vmsg="threads must be >= 1"
 end
 ```
 """
@@ -227,7 +232,7 @@ macro ARG_REQ(args...) _placeholder_macro_error("@ARG_REQ") end
 
 
 """
-    @ARG_OPT T name flags... [help="..."] [help_name="..."] [env="..."] [default=...] [fallback=other_arg]
+    @ARG_OPT T name flags... [help="..."] [help_name="..."] [env="..."] [default=...] [fallback=other_arg] [vfun=...] [vmsg="..."]
 
 Declare an optional single-valued option argument.
 
@@ -243,6 +248,9 @@ Behavior:
 - CLI input and environment input are parsed as `T`.
 - `default` is converted to `T` using RunicCLI default conversion.
 - Multiple occurrences of the same logical option are rejected.
+- If `vfun` is provided, validation is applied only when value is non-`nothing`.
+- If `vmsg` is provided, it is used as custom failure text.
+- `vmsg` requires `vfun`.
 
 Fallback semantics:
 - `fallback` refers to another declared argument by symbol name.
@@ -255,11 +263,12 @@ Constraints:
 - `name` must be a symbol identifier.
 - At least one flag is required.
 - Flags must be string literals and valid option tokens.
-- Supported keywords are `help`, `help_name`, `env`, `default`, and `fallback`.
-- `help`, `help_name`, and `env` must be string literals if provided.
+- Supported keywords are `help`, `help_name`, `env`, `default`, `fallback`, `vfun`, and `vmsg`.
+- `help`, `help_name`, `env`, and `vmsg` must be string literals if provided.
 - `help_name` must be non-empty and single-line.
 - `env` must be non-empty.
 - `fallback` must be a symbol identifier naming another declared argument.
+- `vmsg` requires `vfun`.
 - Fallback is supported only for optional value-bearing arguments.
 - The fallback target must be a value-bearing non-rest argument.
 - Not callable at runtime (placeholder macro outside DSL expansion).
@@ -292,7 +301,7 @@ end
 macro ARG_OPT(args...) _placeholder_macro_error("@ARG_OPT") end
 
 """
-    @ARG_FLAG name flags... [help="..."] [help_name="..."]
+    @ARG_FLAG name flags... [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]
 
 Declare a boolean switch option.
 
@@ -301,12 +310,17 @@ Behavior:
 - Value is `true` iff at least one listed flag appears in argv.
 - Repeated occurrences are allowed; presence semantics remain boolean.
 - Presence is tracked for mutual exclusion checks.
+- If `vfun` is provided, post-parse validation is applied as `vfun(value) == true`.
+- If `vmsg` is provided, it is used as custom failure text.
+- `vmsg` requires `vfun`.
 
 Constraints:
 - `name` must be a symbol identifier.
 - At least one flag is required.
 - Flags must be string literals and valid option tokens.
-- `help` and `help_name` must be string literals if provided.
+- `help`, `help_name`, and `vmsg` must be string literals if provided.
+- `help_name` must be non-empty and single-line.
+- `vmsg` requires `vfun`.
 - Not callable at runtime (placeholder macro outside DSL expansion).
 
 Example:
@@ -319,7 +333,7 @@ end
 macro ARG_FLAG(args...) _placeholder_macro_error("@ARG_FLAG") end
 
 """
-    @ARG_COUNT name flags... [help="..."] [help_name="..."]
+    @ARG_COUNT name flags... [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]
 
 Declare a counter option that counts flag occurrences.
 
@@ -328,12 +342,17 @@ Behavior:
 - Each occurrence of any listed flag contributes `+1`.
 - Useful for verbosity levels such as `-v -v -v`.
 - Presence count is tracked precisely for mutual exclusion diagnostics.
+- If `vfun` is provided, post-parse validation is applied as `vfun(value) == true`.
+- If `vmsg` is provided, it is used as custom failure text.
+- `vmsg` requires `vfun`.
 
 Constraints:
 - `name` must be a symbol identifier.
 - At least one flag is required.
 - Flags must be string literals and valid option tokens.
-- `help` and `help_name` must be string literals if provided.
+- `help`, `help_name`, and `vmsg` must be string literals if provided.
+- `help_name` must be non-empty and single-line.
+- `vmsg` requires `vfun`.
 - Not callable at runtime (placeholder macro outside DSL expansion).
 
 Example:
@@ -347,7 +366,7 @@ macro ARG_COUNT(args...) _placeholder_macro_error("@ARG_COUNT") end
 
 
 """
-    @ARG_MULTI T name flags... [help="..."] [help_name="..."]
+    @ARG_MULTI T name flags... [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]
 
 Declare a repeatable option that collects values into `Vector{T}`.
 
@@ -356,12 +375,17 @@ Behavior:
 - Every occurrence of any listed flag consumes one value.
 - All consumed values are parsed as `T` and appended in occurrence order.
 - If omitted, result is an empty vector.
+- If `vfun` is provided, post-parse validation is applied element-wise: every collected value must satisfy `vfun`.
+- If `vmsg` is provided, it is used as custom failure text.
+- `vmsg` requires `vfun`.
 
 Constraints:
 - `name` must be a symbol identifier.
 - At least one flag is required.
 - Flags must be string literals and valid option tokens.
-- `help` and `help_name` must be string literals if provided.
+- `help`, `help_name`, and `vmsg` must be string literals if provided.
+- `help_name` must be non-empty and single-line.
+- `vmsg` requires `vfun`.
 - Not callable at runtime (placeholder macro outside DSL expansion).
 
 Example:
@@ -374,7 +398,7 @@ end
 macro ARG_MULTI(args...) _placeholder_macro_error("@ARG_MULTI") end
 
 """
-    @POS_REQ T name [help="..."] [help_name="..."]
+    @POS_REQ T name [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]
 
 Declare a required positional argument.
 
@@ -383,10 +407,16 @@ Behavior:
 - Consumes the next positional token.
 - Missing token triggers a parse error.
 - Parsed using RunicCLI value parsing (`_parse_value`).
+- If `vfun` is provided, post-parse validation is applied as `vfun(value) == true`.
+- If `vmsg` is provided, it is used as custom failure text.
+- `vmsg` requires `vfun`.
 
 Constraints:
 - `name` must be a symbol identifier.
-- Only keyword metadata is allowed (`help`, `help_name`).
+- Only keyword metadata is allowed (`help`, `help_name`, `vfun`, `vmsg`).
+- `help`, `help_name`, and `vmsg` must be string literals if provided.
+- `help_name` must be non-empty and single-line.
+- `vmsg` requires `vfun`.
 - Must appear before `@POS_REST` (if any).
 - Not callable at runtime (placeholder macro outside DSL expansion).
 
@@ -400,27 +430,32 @@ end
 macro POS_REQ(args...) _placeholder_macro_error("@POS_REQ") end
 
 """
-    @POS_OPT T name [help="..."] [help_name="..."] [env="..."] [default=...]
+    @POS_OPT T name [help="..."] [help_name="..."] [env="..."] [default=...] [fallback=other_arg] [vfun=...] [vmsg="..."]
 
 Declare an optional positional argument.
 
 Behavior:
-- Produces a field of type `Union{T,Nothing}` when `default` is not provided.
-- Produces a field of type `T` when `default` is provided.
+- Produces a field of type `Union{T,Nothing}`.
 - Value resolution order is:
   1. Next positional token, if available
   2. Environment variable value from `env="..."`
   3. `default=...`
-  4. `nothing` (only when no default is provided)
+  4. `nothing`
 - CLI input and environment input are parsed as `T`.
 - `default` is converted to `T` using RunicCLI default conversion.
+- If `fallback=other_arg` is provided and the value is still `nothing`, this argument takes the final resolved value of `other_arg`.
+- If `vfun` is provided, validation is applied only when value is non-`nothing`.
+- If `vmsg` is provided, it is used as custom failure text.
+- `vmsg` requires `vfun`.
 
 Constraints:
 - `name` must be a symbol identifier.
-- Only keyword metadata is allowed (`help`, `help_name`, `env`, `default`).
-- `help`, `help_name`, and `env` must be string literals if provided.
+- Only keyword metadata is allowed (`help`, `help_name`, `env`, `default`, `fallback`, `vfun`, `vmsg`).
+- `help`, `help_name`, `env`, and `vmsg` must be string literals if provided.
 - `help_name` must be non-empty and single-line.
 - `env` must be non-empty.
+- `fallback` must be a symbol identifier naming another declared argument.
+- `vmsg` requires `vfun`.
 - Must appear before `@POS_REST` (if any).
 - Not callable at runtime (placeholder macro outside DSL expansion).
 
@@ -435,7 +470,7 @@ end
 macro POS_OPT(args...) _placeholder_macro_error("@POS_OPT") end
 
 """
-    @POS_REST T name [help="..."] [help_name="..."]
+    @POS_REST T name [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]
 
 Declare a variadic positional collector.
 
@@ -444,12 +479,18 @@ Behavior:
 - Consumes all remaining positional tokens.
 - Each token is parsed as `T`.
 - Useful for pass-through tail arguments.
+- If `vfun` is provided, post-parse validation is applied element-wise: every collected value must satisfy `vfun`.
+- If `vmsg` is provided, it is used as custom failure text.
+- `vmsg` requires `vfun`.
 
 Constraints:
 - `name` must be a symbol identifier.
 - Only one `@POS_REST` is allowed per command scope.
 - `@POS_REST` must be the last positional declaration.
-- Only keyword metadata is allowed (`help`, `help_name`).
+- Only keyword metadata is allowed (`help`, `help_name`, `vfun`, `vmsg`).
+- `help`, `help_name`, and `vmsg` must be string literals if provided.
+- `help_name` must be non-empty and single-line.
+- `vmsg` requires `vfun`.
 - Not callable at runtime (placeholder macro outside DSL expansion).
 
 Example:
@@ -583,21 +624,27 @@ macro ARG_CONFLICTS(args...) _placeholder_macro_error("@ARG_CONFLICTS") end
 
 
 """
-    @ARG_TEST name fn [msg]
+    @ARG_TEST name... fn [msg]
 
-Declare a post-parse validator for a single argument value.
+Declare post-parse validation for one or more argument values.
 
 Behavior:
 - Evaluates after parsing and type conversion.
-- If the argument value is `nothing`, validation is skipped (treated as pass).
-- Otherwise, requires `fn(value) == true`.
+- One or more argument names must be provided before the validator function.
+- For each referenced argument:
+  - If the value is `nothing`, validation is skipped (treated as pass).
+  - Otherwise, requires `fn(value) == true`.
 - On failure, parsing raises `ArgParseError`.
-- If `msg` is provided, it must be a string literal and is used as custom error text.
+- Failure text always appends argument context: `Invalid arg: <name> (...)`.
+- If `msg` is provided, it must be a string literal and is used as the custom prefix.
 
 Constraints:
-- `name` must refer to an already declared argument.
+- Each `name` must refer to an already declared argument.
+- At least one argument name is required.
 - `fn` is required.
 - Optional `msg` must be a string literal.
+- At most one custom message is allowed.
+- Duplicate names in one invocation are rejected.
 - Not callable at runtime (placeholder macro outside DSL expansion).
 
 ---
@@ -606,32 +653,34 @@ Constraints:
 
 `@ARG_TEST` works well with RunicCLI's built-ins:
 
-### Numeric
-- [`v_min(minv)`](@ref)
-- [`v_max(maxv)`](@ref)
-- [`v_range(lo, hi; closed=true)`](@ref)
+For example: (See `RunicCLIRuntime` for all available validators)
 
-### Membership
-- [`v_oneof(xs)`](@ref)
-- [`v_include(xs)`](@ref) (alias of `v_oneof`)
-- [`v_exclude(xs)`](@ref)
+- Numeric
+    - [`V_num_min(minv)`](@ref)
+    - [`V_num_max(maxv)`](@ref)
+    - [`V_num_range(lo, hi; closed=true)`](@ref)
 
-### String / pattern
-- [`v_length(; min=nothing, max=nothing, eq=nothing)`](@ref)
-- [`v_prefix(prefix)`](@ref)
-- [`v_suffix(suffix)`](@ref)
-- [`v_regex(re::Regex)`](@ref)
+- Membership
+    - [`V_any_oneof(xs)`](@ref)
+    - [`V_any_include(xs)`](@ref)
+    - [`V_any_exclude(xs)`](@ref)
 
-### Path
-- [`v_exists()`](@ref)
-- [`v_isfile()`](@ref)
-- [`v_isdir()`](@ref)
-- [`v_readable()`](@ref)
-- [`v_writable()`](@ref)
+- String / pattern
+    - [`V_str_length(; min=nothing, max=nothing, eq=nothing)`](@ref)
+    - [`V_str_prefix(prefix)`](@ref)
+    - [`V_str_suffix(suffix)`](@ref)
+    - [`V_str_regex(re::Regex)`](@ref)
 
-### Composition
-- [`v_and(f1, f2, ...)`](@ref)
-- [`v_or(f1, f2, ...)`](@ref)
+- Path
+    - [`V_path_exists()`](@ref)
+    - [`V_path_isfile()`](@ref)
+    - [`V_path_isdir()`](@ref)
+    - [`V_path_readable()`](@ref)
+    - [`V_path_writable()`](@ref)
+
+- Composition
+    - [`V_AND(f1, f2, ...)`](@ref)
+    - [`V_OR(f1, f2, ...)`](@ref)
 
 ---
 
@@ -640,9 +689,15 @@ Constraints:
 Built-in composition:
 
 ```julia
-@ARG_TEST port v_and(v_min(1), v_max(65535)) "port must be in 1..65535"
-@ARG_TEST mode v_oneof(["fast", "safe", "debug"]) "invalid mode"
-@ARG_TEST input v_and(v_exists(), v_isfile(), v_readable()) "input must be a readable file"
+@ARG_TEST port V_AND(V_num_min(1), V_num_max(65535)) "port must be in 1..65535"
+@ARG_TEST mode V_any_oneof(["fast", "safe", "debug"]) "invalid mode"
+@ARG_TEST input V_AND(V_path_exists(), V_path_isfile(), V_path_readable()) "input must be a readable file"
+```
+
+Multi-argument validation in one declaration:
+
+```julia
+@ARG_TEST host backup_host x -> !isempty(strip(x)) "host must not be blank"
 ```
 
 Custom validator function:
@@ -685,32 +740,34 @@ Constraints:
 
 ## Built-in validator helpers
 
-### Numeric
-- [`v_min(minv)`](@ref)
-- [`v_max(maxv)`](@ref)
-- [`v_range(lo, hi; closed=true)`](@ref)
+For example: (See `RunicCLIRuntime` for all available validators)
 
-### Membership
-- [`v_oneof(xs)`](@ref)
-- [`v_include(xs)`](@ref) (alias of `v_oneof`)
-- [`v_exclude(xs)`](@ref)
+- Numeric
+    - [`V_num_min(minv)`](@ref)
+    - [`V_num_max(maxv)`](@ref)
+    - [`V_num_range(lo, hi; closed=true)`](@ref)
 
-### String / pattern
-- [`v_length(; min=nothing, max=nothing, eq=nothing)`](@ref)
-- [`v_prefix(prefix)`](@ref)
-- [`v_suffix(suffix)`](@ref)
-- [`v_regex(re::Regex)`](@ref)
+- Membership
+    - [`V_any_oneof(xs)`](@ref)
+    - [`V_any_include(xs)`](@ref)
+    - [`V_any_exclude(xs)`](@ref)
 
-### Path
-- [`v_exists()`](@ref)
-- [`v_isfile()`](@ref)
-- [`v_isdir()`](@ref)
-- [`v_readable()`](@ref)
-- [`v_writable()`](@ref)
+- String / pattern
+    - [`V_str_length(; min=nothing, max=nothing, eq=nothing)`](@ref)
+    - [`V_str_prefix(prefix)`](@ref)
+    - [`V_str_suffix(suffix)`](@ref)
+    - [`V_str_regex(re::Regex)`](@ref)
 
-### Composition
-- [`v_and(f1, f2, ...)`](@ref)
-- [`v_or(f1, f2, ...)`](@ref)
+- Path
+    - [`V_path_exists()`](@ref)
+    - [`V_path_isfile()`](@ref)
+    - [`V_path_isdir()`](@ref)
+    - [`V_path_readable()`](@ref)
+    - [`V_path_writable()`](@ref)
+
+- Composition
+    - [`V_AND(f1, f2, ...)`](@ref)
+    - [`V_OR(f1, f2, ...)`](@ref)
 
 ---
 

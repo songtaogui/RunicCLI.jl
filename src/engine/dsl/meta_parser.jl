@@ -6,13 +6,16 @@ function _expect_string_literal_at(node::Expr, idx::Int, macro_name::String, exp
         "$(macro_name) in $(expect_ctx) expects one String literal"
     ))
     v = node.args[idx]
-    v isa String || throw(ArgumentError(
+
+    s = _string_literal_value(v)
+    s === nothing && throw(ArgumentError(
         isempty(expect_ctx) ?
         "$(macro_name) expects a String literal" :
         "$(macro_name) in $(expect_ctx) expects a String literal"
     ))
-    return v
+    return s
 end
+
 
 function _parse_cmd_meta_block(
     block::Expr;

@@ -28,7 +28,7 @@ function _parse_decl_pipeline!(ctx::_CompileCtx, spec::ArgDeclSpec, node::Expr)
         isempty(flags) && throw(ArgumentError("$(spec.macro_name) requires at least one flag"))
         _register_flags!(ctx, flags, nm, spec.macro_name)
     else
-        isempty(meta.remain) || throw(ArgumentError("$(spec.macro_name) supports only keyword metadata: help=\"...\", help_name=\"...\"$(spec.allow_env ? ", env=\"...\"" : "")$(spec.allow_default ? ", default=..." : "")$(spec.allow_fallback ? ", fallback=other_arg" : "")"))
+        isempty(meta.remain) || throw(ArgumentError("$(spec.macro_name) supports only keyword metadata: help=\"...\", help_name=\"...\"$(spec.allow_env ? ", env=\"...\"" : "")$(spec.allow_default ? ", default=..." : "")$(spec.allow_fallback ? ", fallback=other_arg" : ""), vfun=..., vmsg=\"...\""))
     end
 
     push!(ctx.declared_names, nm)
@@ -44,6 +44,8 @@ function _parse_decl_pipeline!(ctx::_CompileCtx, spec::ArgDeclSpec, node::Expr)
         has_default=meta.has_default,
         default=meta.default,
         fallback=meta.fallback,
+        vfun=meta.vfun,
+        vmsg=meta.vmsg,
         style=spec.style,
         kind=spec.kind
     )
@@ -63,6 +65,16 @@ function _emit_decl_opt_required!(ctx::_CompileCtx, d)
         local $(nm)::$(T) = $(_gr(:_parse_value))($(T), _raw, $(string(nm)))
     end)
     push!(ctx.argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_OPTION)), name=$(QuoteNode(nm)), T=$(T), flags=$(flags), required=true, help=$(help), help_name=$(help_name))))
+
+    if d.vfun !== nothing
+        local _msg = isempty(d.vmsg) ? "Argument test failed" : d.vmsg
+        push!(ctx.post_stmts, quote
+            if !$(d.vfun)($(nm))
+                local _vname = try String(nameof($(d.vfun))) catch; "validator" end
+                $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * $(string(_msg)) * "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")")
+            end
+        end)
+    end
 end
 
 function _emit_decl_opt_optional!(ctx::_CompileCtx, d)
@@ -121,8 +133,17 @@ function _emit_decl_opt_optional!(ctx::_CompileCtx, d)
         env=$(env),
         fallback=$(fallback === nothing ? nothing : QuoteNode(fallback))
     )))
-end
 
+    if d.vfun !== nothing
+        local _msg = isempty(d.vmsg) ? "Argument test failed" : d.vmsg
+        push!(ctx.post_stmts, quote
+            if !(isnothing($(nm)) || $(d.vfun)($(nm)))
+                local _vname = try String(nameof($(d.vfun))) catch; "validator" end
+                $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * $(string(_msg)) * "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")")
+            end
+        end)
+    end
+end
 
 function _emit_decl_flag!(ctx::_CompileCtx, d)
     nm, flags, help, help_name = d.nm, d.flags, d.help, d.help_name
@@ -136,6 +157,16 @@ function _emit_decl_flag!(ctx::_CompileCtx, d)
         local $(provided_sym) = ($(flag_before_sym) != length(_opt_args))
     end)
     push!(ctx.argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_FLAG)), name=$(QuoteNode(nm)), T=Bool, flags=$(flags), help=$(help), help_name=$(help_name))))
+
+    if d.vfun !== nothing
+        local _msg = isempty(d.vmsg) ? "Argument test failed" : d.vmsg
+        push!(ctx.post_stmts, quote
+            if !$(d.vfun)($(nm))
+                local _vname = try String(nameof($(d.vfun))) catch; "validator" end
+                $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * $(string(_msg)) * "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")")
+            end
+        end)
+    end
 end
 
 function _emit_decl_count!(ctx::_CompileCtx, d)
@@ -152,6 +183,16 @@ function _emit_decl_count!(ctx::_CompileCtx, d)
         local $provided_sym = ($(nm) > 0)
     end)
     push!(ctx.argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_COUNT)), name=$(QuoteNode(nm)), T=Int, flags=$(flags), help=$(help), help_name=$(help_name))))
+
+    if d.vfun !== nothing
+        local _msg = isempty(d.vmsg) ? "Argument test failed" : d.vmsg
+        push!(ctx.post_stmts, quote
+            if !$(d.vfun)($(nm))
+                local _vname = try String(nameof($(d.vfun))) catch; "validator" end
+                $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * $(string(_msg)) * "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")")
+            end
+        end)
+    end
 end
 
 function _emit_decl_multi!(ctx::_CompileCtx, d)
@@ -165,6 +206,22 @@ function _emit_decl_multi!(ctx::_CompileCtx, d)
         local $(nm)::Vector{$(T)} = [ $(_gr(:_parse_value))($(T), v, $(string(nm))) for v in _vals ]
     end)
     push!(ctx.argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_OPTION_MULTI)), name=$(QuoteNode(nm)), T=$(T), flags=$(flags), help=$(help), help_name=$(help_name))))
+
+    if d.vfun !== nothing
+        local _msg = isempty(d.vmsg) ? "Argument test failed" : d.vmsg
+        push!(ctx.post_stmts, quote
+            local _vname = try String(nameof($(d.vfun))) catch; "validator" end
+            local _fails = String[]
+            for _v in $(nm)
+                if !$(d.vfun)(_v)
+                    push!(_fails, repr(_v))
+                end
+            end
+            if !isempty(_fails)
+                $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * $(string(_msg)) * "\n (validator=" * _vname * ", failed_values=[" * join(_fails, ", ") * "])")
+            end
+        end)
+    end
 end
 
 function _emit_decl_pos_required!(ctx::_CompileCtx, d)
@@ -179,6 +236,16 @@ function _emit_decl_pos_required!(ctx::_CompileCtx, d)
         local $(nm)::$(T) = $(_gr(:_parse_value))($(T), popfirst!(_args), $(string(nm)))
     end)
     push!(ctx.argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_POS_REQUIRED)), name=$(QuoteNode(nm)), T=$(T), required=true, help=$(help), help_name=$(help_name))))
+
+    if d.vfun !== nothing
+        local _msg = isempty(d.vmsg) ? "Argument test failed" : d.vmsg
+        push!(ctx.post_stmts, quote
+            if !$(d.vfun)($(nm))
+                local _vname = try String(nameof($(d.vfun))) catch; "validator" end
+                $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * $(string(_msg)) * "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")")
+            end
+        end)
+    end
 end
 
 function _emit_decl_pos_optional!(ctx::_CompileCtx, d)
@@ -234,8 +301,17 @@ function _emit_decl_pos_optional!(ctx::_CompileCtx, d)
         env=$(env),
         fallback=$(fallback === nothing ? nothing : QuoteNode(fallback))
     )))
-end
 
+    if d.vfun !== nothing
+        local _msg = isempty(d.vmsg) ? "Argument test failed" : d.vmsg
+        push!(ctx.post_stmts, quote
+            if !(isnothing($(nm)) || $(d.vfun)($(nm)))
+                local _vname = try String(nameof($(d.vfun))) catch; "validator" end
+                $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * $(string(_msg)) * "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")")
+            end
+        end)
+    end
+end
 
 function _emit_decl_pos_rest!(ctx::_CompileCtx, d)
     nm, T, help, help_name = d.nm, d.T, d.help, d.help_name
@@ -250,6 +326,22 @@ function _emit_decl_pos_rest!(ctx::_CompileCtx, d)
         empty!(_args)
     end)
     push!(ctx.argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_POS_REST)), name=$(QuoteNode(nm)), T=$(T), help=$(help), help_name=$(help_name))))
+
+    if d.vfun !== nothing
+        local _msg = isempty(d.vmsg) ? "Streaming validation failed" : d.vmsg
+        push!(ctx.post_stmts, quote
+            local _vname = try String(nameof($(d.vfun))) catch; "validator" end
+            local _fails = String[]
+            for _v in $(nm)
+                if !$(d.vfun)(_v)
+                    push!(_fails, repr(_v))
+                end
+            end
+            if !isempty(_fails)
+                $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * $(string(_msg)) * "\n (validator=" * _vname * ", failed_values=[" * join(_fails, ", ") * "])")
+            end
+        end)
+    end
 end
 
 const _DECL_EMITTERS = Dict{Symbol,Function}(

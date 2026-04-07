@@ -49,26 +49,42 @@ function _handle_arg_group!(ctx::_CompileCtx, node::Expr)
 end
 
 function _handle_arg_test!(ctx::_CompileCtx, node::Expr)
-    length(node.args) >= 4 || throw(ArgumentError("@ARG_TEST requires an argument name and a validator function"))
-    nm, rest = _extract_name_and_rest(node, 3, "@ARG_TEST", "argument name")
-    nm in ctx.declared_names || throw(ArgumentError("@ARG_TEST references unknown argument: $(nm)"))
-    isempty(rest) && throw(ArgumentError("@ARG_TEST requires a validator function"))
+    length(node.args) >= 5 || throw(ArgumentError("@ARG_TEST requires at least one argument name, a validator function, and optional message"))
 
-    fn = rest[1]
-    msg = if length(rest) >= 2
-        rest[2] isa String || throw(ArgumentError("@ARG_TEST message must be a String literal"))
-        rest[2]
-    else
-        "Argument test failed: $(nm)"
+    raw = Any[node.args[i] for i in 3:length(node.args)]
+    fn_idx = findfirst(x -> !(x isa Symbol || (x isa QuoteNode && x.value isa Symbol)), raw)
+    fn_idx === nothing && throw(ArgumentError("@ARG_TEST requires a validator function"))
+
+    fn_idx >= 2 || throw(ArgumentError("@ARG_TEST requires at least one argument name before validator function"))
+
+    nms = Symbol[]
+    for i in 1:(fn_idx - 1)
+        nm = _expect_name_symbol(raw[i], "@ARG_TEST", "argument name")
+        nm in ctx.declared_names || throw(ArgumentError("@ARG_TEST references unknown argument: $(nm)"))
+        push!(nms, nm)
     end
-    length(rest) <= 2 || throw(ArgumentError("@ARG_TEST accepts at most one message String"))
+    _ensure_no_duplicates!(nms, "@ARG_TEST", "argument names")
 
-    push!(ctx.post_stmts, quote
-        if !(isnothing($(nm)) || $(fn)($(nm)))
-            local _vname = try String(nameof($(fn))) catch; "validator" end
-            $(_gr(:_throw_arg_error))($(msg) * " (arg=$(string($(QuoteNode(nm)))), validator=" * _vname * ", value=" * repr($(nm)) * ")")
-        end
-    end)
+    fn = raw[fn_idx]
+    rest = raw[(fn_idx + 1):end]
+
+    msg = if isempty(rest)
+        "Argument test failed"
+    elseif length(rest) == 1
+        rest[1] isa String || throw(ArgumentError("@ARG_TEST message must be a String literal"))
+        rest[1]
+    else
+        throw(ArgumentError("@ARG_TEST accepts at most one message String"))
+    end
+
+    for nm in nms
+        push!(ctx.post_stmts, quote
+            if !(isnothing($(nm)) || $(fn)($(nm)))
+                local _vname = try String(nameof($(fn))) catch; "validator" end
+                $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * $(msg) * "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")")
+            end
+        end)
+    end
 end
 
 function _handle_arg_stream!(ctx::_CompileCtx, node::Expr)
@@ -82,7 +98,7 @@ function _handle_arg_stream!(ctx::_CompileCtx, node::Expr)
         rest[2] isa String || throw(ArgumentError("@ARG_STREAM message must be a String literal"))
         rest[2]
     else
-        "Streaming validation failed: $(nm)"
+        "Streaming validation failed"
     end
     length(rest) <= 2 || throw(ArgumentError("@ARG_STREAM accepts at most one message String"))
 
@@ -99,7 +115,7 @@ function _handle_arg_stream!(ctx::_CompileCtx, node::Expr)
             push!(_fails, repr($(nm)))
         end
         if !isempty(_fails)
-            $(_gr(:_throw_arg_error))($(msg) * " (arg=$(string($(QuoteNode(nm)))), validator=" * _vname * ", failed_values=[" * join(_fails, ", ") * "])")
+            $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * $(msg) * "\n (validator=" * _vname * ", failed_values=[" * join(_fails, ", ") * "])")
         end
     end)
 end

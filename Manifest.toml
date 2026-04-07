@@ -1,6 +1,6 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.4"
+julia_version = "1.12.5"
 manifest_format = "2.0"
 project_hash = "36586dbf4fa414bd198a1f6d6e79504ac95719a5"
 
@@ -25,16 +25,16 @@ uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "1.2.2"
 
 [[deps.RunicCLI]]
-deps = ["MacroTools", "RunicCLIRuntime"]
+deps = ["MacroTools", "Reexport", "RunicCLIRuntime"]
 path = "."
 uuid = "67ca3c63-b4b2-4ee3-a21a-d0ea65885ced"
-version = "0.2.0"
+version = "0.2.2"
 
 [[deps.RunicCLIRuntime]]
 deps = ["TOML", "TextWrap"]
 path = "/home/stgui/sftw/02_diy/00_stgui/RunicCLIRuntime/"
 uuid = "2d9a0462-f75e-4e7b-a4a8-2f5f7a313918"
-version = "0.2.0"
+version = "0.2.1"
 
 [[deps.TOML]]
 deps = ["Dates"]

@@ -3,7 +3,12 @@
     @CMD_DESC "Version test command"
     @CMD_VERSION "VersionCmdForTest 1.0.0"
 
-    @ARG_FLAG verbose "-v" "--verbose"
+    @ARG_FLAG verbose "-v" "--verbose" help="""
+        test newlines in help msgs:
+        - line2
+        - line3
+        - line4
+        """
 
     @CMD_SUB "serve" begin
         @CMD_DESC "Serve subcommand"

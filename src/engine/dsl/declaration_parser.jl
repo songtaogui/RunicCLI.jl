@@ -71,7 +71,6 @@ function _extract_decl_meta!(
             seen_help && throw(ArgumentError("$(macro_name) duplicate keyword: help"))
             s = _string_literal_value(v)
             s === nothing && throw(ArgumentError("$(macro_name) help must be a String literal"))
-            # occursin('\n', s) && throw(ArgumentError("$(macro_name) help must be a single-line String (newline is not allowed)"))
             help = s
             seen_help = true
 

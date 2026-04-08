@@ -34,7 +34,7 @@ version = "0.2.3"
 deps = ["Dates", "TOML", "TextWrap"]
 path = "/home/stgui/sftw/02_diy/00_stgui/RunicCLIRuntime/"
 uuid = "2d9a0462-f75e-4e7b-a4a8-2f5f7a313918"
-version = "0.2.3"
+version = "0.3.0"
 
 [[deps.TOML]]
 deps = ["Dates"]

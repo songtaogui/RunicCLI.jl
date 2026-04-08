@@ -69,7 +69,7 @@ function _handle_arg_test!(ctx::_CompileCtx, node::Expr)
     rest = raw[(fn_idx + 1):end]
 
     msg = if isempty(rest)
-        "Argument test failed"
+        nothing
     elseif length(rest) == 1
         rest[1] isa String || throw(ArgumentError("@ARG_TEST message must be a String literal"))
         rest[1]
@@ -79,9 +79,13 @@ function _handle_arg_test!(ctx::_CompileCtx, node::Expr)
 
     for nm in nms
         push!(ctx.post_stmts, quote
-            if !(isnothing($(nm)) || $(fn)($(nm)))
-                local _vname = try String(nameof($(fn))) catch; "validator" end
-                $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * $(msg) * "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")")
+            local _vs = $(_gr(:validator))($(fn))
+            local _vfn = $(_gr(:validator_fn))(_vs)
+            local _vmsg = $(msg === nothing ? :(nothing) : msg)
+            local _final_msg = $(_gr(:validator_resolve_message))(_vs, _vmsg, "Argument test failed")
+            if !(isnothing($(nm)) || _vfn($(nm)))
+                local _vname = $(_gr(:validator_name))(_vfn)
+                $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * _final_msg * "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")")
             end
         end)
     end
@@ -98,24 +102,27 @@ function _handle_arg_stream!(ctx::_CompileCtx, node::Expr)
         rest[2] isa String || throw(ArgumentError("@ARG_STREAM message must be a String literal"))
         rest[2]
     else
-        "Streaming validation failed"
+        nothing
     end
     length(rest) <= 2 || throw(ArgumentError("@ARG_STREAM accepts at most one message String"))
 
     push!(ctx.post_stmts, quote
-        local _vname = try String(nameof($(fn))) catch; "validator" end
+        local _vs = $(_gr(:validator))($(fn))
+        local _vfn = $(_gr(:validator_fn))(_vs)
+        local _vname = $(_gr(:validator_name))(_vfn)
+        local _final_msg = $(_gr(:validator_resolve_message))(_vs, $(msg === nothing ? :(nothing) : msg), "Streaming validation failed")
         local _fails = String[]
         if $(nm) isa AbstractVector
             for _v in $(nm)
-                if !$(fn)(_v)
+                if !_vfn(_v)
                     push!(_fails, repr(_v))
                 end
             end
-        elseif !(isnothing($(nm)) || $(fn)($(nm)))
+        elseif !(isnothing($(nm)) || _vfn($(nm)))
             push!(_fails, repr($(nm)))
         end
         if !isempty(_fails)
-            $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * $(msg) * "\n (validator=" * _vname * ", failed_values=[" * join(_fails, ", ") * "])")
+            $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * _final_msg * "\n (validator=" * _vname * ", failed_values=[" * join(_fails, ", ") * "])")
         end
     end)
 end

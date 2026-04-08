@@ -2,11 +2,11 @@
     @CMD_USAGE "validator [OPTIONS]"
     @CMD_DESC "Validator command for builtin validator tests."
 
-    @ARG_REQ Int level "--level" vfun=V_AND(V_num_min(1), V_num_max(10)) vmsg="level must be between 1 and 10"
-    @ARG_REQ String mode "--mode" vfun=V_any_oneof(["fast", "slow"]) vmsg="mode must be fast or slow"
-    @ARG_REQ String tag "--tag" vfun=V_str_regex(r"^item-\d+$") vmsg="tag must match item-<number>"
-    @ARG_REQ String filepath "--filepath" vfun=V_AND(V_path_exists(), V_path_isfile(), V_path_readable()) vmsg="filepath must be a readable file"
-    @ARG_MULTI Int nums "--num" vfun=V_num_range(0, 100) vmsg="each num must be in [0,100]"
+    @ARG_REQ Int level "--level" vfun=V_num_min(1)
+    @ARG_REQ String mode "--mode" vfun=V_any_oneof(["fast", "slow"])
+    @ARG_REQ String tag "--tag" vfun=V_str_regex(r"^item-\d+$")
+    @ARG_REQ String filepath "--filepath" vfun=V_AND(V_path_exists(), V_path_isfile(), V_path_readable())
+    @ARG_MULTI Int nums "--num" vfun=V_num_range(0, 100)
 
     @ARG_TEST level mode tag x -> !isnothing(x) "level/mode/tag should not be nothing"
 end
@@ -35,10 +35,8 @@ end
         write(io, "hello\n")
         close(io)
 
-        obj = parse_cli(
-            ValidatorCmdForTest,
-            ["--level", "5", "--mode", "fast", "--tag", "item-7", "--filepath", path, "--num", "1", "--num", "100"]
-        )
+        obj = parse_cli(ValidatorCmdForTest,
+            ["--level", "5", "--mode", "fast", "--tag", "item-7", "--filepath", path, "--num", "1", "--num", "100"])
         @test obj.level == 5
         @test obj.mode == "fast"
         @test obj.tag == "item-7"

@@ -10,12 +10,12 @@
             write(io, "idx")
         end
 
-        @test V_file_has_index(suffixes=[".fai"], mode=:all)(f)
-        @test V_file_has_any_index(suffixes=[".fai"])(f)
-        @test V_file_has_all_indexes(suffixes=[".fai"])(f)
+        @test validator_fn(V_file_has_index(suffixes=[".fai"], mode=:all))(f)
+        @test validator_fn(V_file_has_any_index(suffixes=[".fai"]))(f)
+        @test validator_fn(V_file_has_all_indexes(suffixes=[".fai"]))(f)
 
-        @test !V_file_has_index(suffixes=[".csi"], mode=:all)(f)
-        @test V_file_has_index(suffixes=[".csi"], mode=:none)(f)
+        @test !validator_fn(V_file_has_index(suffixes=[".csi"], mode=:all))(f)
+        @test validator_fn(V_file_has_index(suffixes=[".csi"], mode=:none))(f)
 
         g = joinpath(d, "a.b.c.txt")
         open(g, "w") do io
@@ -26,12 +26,12 @@
             write(io, "idx")
         end
 
-        @test V_file_has_index(replace_ext=[".idx"], strip_all_ext=true, mode=:all)(g)
+        @test validator_fn(V_file_has_index(replace_ext=[".idx"], strip_all_ext=true, mode=:all))(g)
 
         groups = [
             (suffixes=[".fai"], mode=:all),
             (replace_ext=[".idx"], mode=:none),
         ]
-        @test V_file_has_index_groups(groups, group_mode=:all)(f)
+        @test validator_fn(V_file_has_index_groups(groups, group_mode=:all))(f)
     end
 end

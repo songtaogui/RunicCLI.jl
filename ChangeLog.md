@@ -6,3 +6,18 @@
 
 # V0.2.3
 - RunicCLIRuntime: add additional path/file/dir validators and tests.
+
+# V0.3.0
+- Add `ValidatorSpec` struct, for better validator msg.
+- `V_*` built-in validators now return ValidatorSpec.
+- `V_AND, V_OR, V_NOT` support both fn and ValidatorSpec.
+- `vfun=` now can accept 3 ways:
+    1. ValidatorSpec;
+    2. function (will turn into ValidatorSpec with empty vmsg);
+    3. Pair(msg, fn): `"msg" => fn`;
+- `vmsg=` will overwrite built-in msgs.
+
+# V0.3.1
+- add `name` attribute for ValidatorSpec
+- update name of built-in validators
+- update `V_AND, V_OR, V_NOT` to support name construction

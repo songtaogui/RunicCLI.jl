@@ -1,7 +1,7 @@
 function _build_main_parser_expr(
-    struct_name, usage, desc, epilog, version, allow_extra,
+    struct_name, usage, desc, epilog, version, allow_extra, auto_help,
     fields, ctor_args, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr,
-    gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs, arg_group_defs,
+    relation_defs, arg_group_defs,
     sub_def_items, sub_parser_exprs, dispatch_branches, sub_help_branches, sub_version_branches, sub_names
 )
     main_parser_name = gensym(:parse_main)
@@ -11,7 +11,7 @@ function _build_main_parser_expr(
         :(_path), usage, desc, epilog, version,
         :(_main_argdefs),
         :($(_gr(:SubcommandDef))[$(sub_def_items...)]),
-        allow_extra, gdefs_excl, gdefs_incl, arg_requires_defs, arg_conflicts_defs, arg_group_defs
+        allow_extra, auto_help, relation_defs, arg_group_defs
     )
 
     static_clidef_name = gensym(Symbol(struct_name, "_clidef"))
@@ -25,10 +25,8 @@ function _build_main_parser_expr(
         :($(_gr(:ArgDef))[$(argdefs_expr...)]),
         :($(_gr(:SubcommandDef))[$(sub_def_items...)]),
         allow_extra,
-        gdefs_excl,
-        gdefs_incl,
-        arg_requires_defs,
-        arg_conflicts_defs,
+        auto_help,
+        relation_defs,
         arg_group_defs
     )
 
@@ -39,7 +37,6 @@ function _build_main_parser_expr(
             subcommand_args::Union{Nothing,NamedTuple}
         end
 
-        # const $(static_clidef_name) = $(static_clidef_expr)
         $(static_clidef_name) = $(static_clidef_expr)
         $(_gr(:CLIDEFREGISTRY))[$(struct_name)] = $(static_clidef_name)
 
@@ -51,12 +48,12 @@ function _build_main_parser_expr(
             option_parse_stmts,
             positional_parse_stmts,
             post_stmts,
-            gdefs_excl,
-            gdefs_incl,
-            arg_requires_defs,
-            arg_conflicts_defs,
+            relation_defs,
             allow_extra;
-            strict_leftover=true
+            strict_leftover=true,
+            auto_help=auto_help,
+            help_def_expr=static_clidef_name,
+            help_path_expr=QuoteNode(string(struct_name))
         ))
         $(sub_parser_exprs...)
 
@@ -70,6 +67,12 @@ function _build_main_parser_expr(
             local _path = String($(QuoteNode(string(struct_name))))
             local _main_argdefs = $(_gr(:ArgDef))[$(argdefs_expr...)]
 
+            # Auto-help must win on raw empty argv before any merge or validation.
+            if $(auto_help) && isempty(argv)
+                local _def = $(main_help_def_expr)
+                throw($(_gr(:ArgHelpRequested))(_def, _path))
+            end
+
             local _cfg = isempty(config) ? Dict{String,Any}() : Dict{String,Any}(string(k)=>v for (k,v) in pairs(config))
             if config_file !== nothing
                 local _f = $(_gr(:load_config_file))(config_file)
@@ -78,6 +81,11 @@ function _build_main_parser_expr(
 
             local _argv0 = copy(argv)
             local _argv_main_merged = $(_gr(:merge_cli_sources))(_argv0, _main_argdefs; env=env, config=_cfg)
+
+            if $(auto_help) && isempty(_argv_main_merged)
+                local _def = $(main_help_def_expr)
+                throw($(_gr(:ArgHelpRequested))(_def, _path))
+            end
 
             local _sub = nothing
             local _sub_idx = 0

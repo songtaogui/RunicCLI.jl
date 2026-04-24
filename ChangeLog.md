@@ -21,3 +21,22 @@
 - add `name` attribute for ValidatorSpec
 - update name of built-in validators
 - update `V_AND, V_OR, V_NOT` to support name construction
+
+# V0.4.1
+
+## 1. Re-design the arg relationship marcos:
+
+Rename and expand:
+
+- `@ARG_REQUIRES` -> `@ARGREL_DEPENDS`
+- `@ARG_CONFLICTS` -> `@ARGREL_CONFLICTS`
+- `@GROUP_EXCL` -> `@ARGREL_ATMOSTONE`
+- `@GROUP_INCL` -> `@ARGREL_ATLEASTONE`
+- add new marcos: `@ARGREL_ONLYONE` and `@ARGREL_ALLORNONE`
+
+Add `help=""` kwargs to control msg.
+
+## 2. `@CMD_AUTOHELP`
+
+add `@CMD_AUTOHELP` for `@CMD_MAIN` and `@CMD_SUB` to turn on auto help msg if no args were provided.
+

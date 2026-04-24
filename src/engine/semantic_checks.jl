@@ -14,26 +14,40 @@ end
     _ensure_option_style!(ctx, macro_name, s)
 end
 
-function _validate_relations!(ctx::_CompileCtx)
-    for grp in ctx.group_defs_excl, s in grp
-        _validate_option_ref!(ctx, "@GROUP_EXCL", s)
-    end
-
-    for grp in ctx.group_defs_incl, s in grp
-        _validate_option_ref!(ctx, "@GROUP_INCL", s)
-    end
-
-    for rd in ctx.arg_requires_defs
-        _validate_option_ref!(ctx, "@ARG_REQUIRES", rd.anchor)
-        for s in rd.targets
-            _validate_option_ref!(ctx, "@ARG_REQUIRES", s)
+function _validate_relation_expr!(ctx::_CompileCtx, macro_name::String, expr::RelationExpr)
+    if expr isa RelAll
+        !isempty(expr.members) || throw(ArgumentError("$(macro_name) all(...) must not be empty"))
+        for s in expr.members
+            _validate_option_ref!(ctx, macro_name, s)
         end
+    elseif expr isa RelAny
+        !isempty(expr.members) || throw(ArgumentError("$(macro_name) any(...) must not be empty"))
+        for s in expr.members
+            _validate_option_ref!(ctx, macro_name, s)
+        end
+    elseif expr isa RelNot
+        _validate_relation_expr!(ctx, macro_name, expr.inner)
+    else
+        throw(ArgumentError("internal error: unsupported RelationExpr"))
     end
+end
 
-    for cd in ctx.arg_conflicts_defs
-        _validate_option_ref!(ctx, "@ARG_CONFLICTS", cd.anchor)
-        for s in cd.targets
-            _validate_option_ref!(ctx, "@ARG_CONFLICTS", s)
+function _validate_relations!(ctx::_CompileCtx)
+    for rel in ctx.relation_defs
+        if rel.kind in (:depends, :conflicts)
+            rel.lhs === nothing && throw(ArgumentError("relation $(rel.kind) requires lhs"))
+            rel.rhs === nothing && throw(ArgumentError("relation $(rel.kind) requires rhs"))
+            _validate_relation_expr!(ctx, "@ARGREL_$(uppercase(String(rel.kind)))", rel.lhs)
+            _validate_relation_expr!(ctx, "@ARGREL_$(uppercase(String(rel.kind)))", rel.rhs)
+
+        elseif rel.kind in (:atmostone, :atleastone, :onlyone, :allornone)
+            isempty(rel.members) && throw(ArgumentError("relation $(rel.kind) requires members"))
+            for s in rel.members
+                _validate_option_ref!(ctx, "@ARGREL_$(uppercase(String(rel.kind)))", s)
+            end
+
+        else
+            throw(ArgumentError("unsupported relation kind: $(rel.kind)"))
         end
     end
 

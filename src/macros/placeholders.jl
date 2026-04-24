@@ -153,6 +153,46 @@ end
 """
 macro CMD_VERSION(args...) _placeholder_macro_error("@CMD_VERSION") end
 
+"""
+    @CMD_AUTOHELP
+
+Enable automatic help display when a command or subcommand is invoked with no effective arguments.
+
+Behavior:
+- When used inside `@CMD_MAIN`, invoking the command with an empty `argv` triggers help immediately.
+- Help is also triggered after config/environment merging if the resulting argument list is still empty.
+- When used inside `@CMD_SUB`, invoking that subcommand without any remaining subcommand arguments triggers subcommand help.
+- Explicit `-h` / `--help` handling remains supported independently of this macro.
+- This macro only enables empty-input help behavior; it does not change argument parsing rules, validation logic, or subcommand dispatch semantics.
+
+Constraints:
+- May only appear inside `@CMD_MAIN begin ... end` or `@CMD_SUB ... begin ... end` blocks.
+- At most one `@CMD_AUTOHELP` may appear within the same command scope.
+- Repeated use in the same command or subcommand block is rejected.
+- Not callable at runtime (placeholder macro outside DSL expansion).
+
+Example:
+```julia
+@CMD_MAIN MyCLI begin
+    @CMD_DESC "Example CLI"
+    @CMD_AUTOHELP
+
+    @ARG_FLAG verbose "-v" "--verbose"
+
+    @CMD_SUB "serve" begin
+        @CMD_DESC "Run the server"
+        @CMD_AUTOHELP
+        @ARG_OPT Int port "--port" default=8080
+    end
+end
+```
+
+With this configuration:
+- `MyCLI([])` shows main command help.
+- `MyCLI(["serve"])` shows help for the `serve` subcommand.
+- `MyCLI(["--help"])` and `MyCLI(["serve", "--help"])` still show help explicitly.
+"""
+macro CMD_AUTOHELP(args...) _placeholder_macro_error("@CMD_AUTOHELP") end
 
 """
     @CMD_SUB "name" begin ... end
@@ -503,125 +543,235 @@ end
 macro POS_REST(args...) _placeholder_macro_error("@POS_REST") end
 
 """
-    @GROUP_EXCL a b c ...
+    @ARGREL_ATMOSTONE a b c ... [help="..."]
 
-Declare a mutually exclusive group of option-style arguments.
-
-Behavior:
-- Enforces that at most one listed argument is explicitly provided.
-- Presence is based on parse-time provided tracking, not on runtime value equality.
-- For count arguments (`@ARG_COUNT`), actual count is used in diagnostics.
-- On violation, parsing fails with a detailed conflict message.
-
-Constraints:
-- Requires at least two argument names.
-- Names must refer to previously declared arguments in the same command scope.
-- Positional arguments are not allowed in exclusion groups.
-- Duplicate names inside one group are rejected.
-- Not callable at runtime (placeholder macro outside DSL expansion).
-
-Example:
-```julia
-@CMD_MAIN MyCLI begin
-    @ARG_FLAG json "--json"
-    @ARG_FLAG yaml "--yaml"
-    @GROUP_EXCL json yaml
-end
-```
-"""
-macro GROUP_EXCL(args...) _placeholder_macro_error("@GROUP_EXCL") end
-
-"""
-    @GROUP_INCL a b c ...
-
-Declare a mutually inclusive group of option-style arguments.
+Declare a cardinality constraint for a set of option-style arguments.
 
 Behavior:
-- Enforces that at least one listed argument is explicitly provided.
-- Presence is based on parse-time provided tracking, not on runtime value equality.
-- For count arguments (`@ARG_COUNT`), actual count is used in diagnostics.
-- On violation, parsing fails with an inclusion requirement message.
+- Enforces that at most one listed argument is considered present.
+- Presence is based on parse-time provided tracking, not on final runtime value equality.
+- For count arguments (`@ARG_COUNT`), an argument is considered present when its observed count is greater than zero.
+- If more than one listed argument is present, parsing fails with a default message, or with the custom `help="..."` message when provided.
 
 Constraints:
-- Requires at least two argument names.
-- Names must refer to previously declared arguments in the same command scope.
-- Positional arguments are not allowed in inclusion groups.
-- Duplicate names inside one group are rejected.
-- Not callable at runtime (placeholder macro outside DSL expansion).
-
-Example:
-```julia
-@CMD_MAIN MyCLI begin
-    @ARG_FLAG json "--json"
-    @ARG_FLAG yaml "--yaml"
-    @GROUP_INCL json yaml
-end
-```
-"""
-macro GROUP_INCL(args...) _placeholder_macro_error("@GROUP_INCL") end
-
-"""
-    @ARG_REQUIRES anchor target1 target2 ...
-
-Declare that one option-style argument requires at least one of a target set.
-
-Behavior:
-- If `anchor` is explicitly provided, at least one target argument must also be explicitly provided.
-- Presence is based on parse-time provided tracking, not on final runtime values.
-- For count arguments (`@ARG_COUNT`), occurrence count is used internally and reflected in diagnostics where applicable.
-- On violation, parsing fails with a requirement message naming the anchor and its allowed targets.
-
-Constraints:
-- Requires one anchor argument name followed by at least one target argument name.
+- Requires at least one argument name.
 - All names must refer to previously declared arguments in the same command scope.
-- The anchor must not also appear in the target list.
-- Positional arguments are not allowed for the anchor or any target.
-- Duplicate target names are rejected.
-- Not callable at runtime (placeholder macro outside DSL expansion).
+- Only option-style arguments are allowed; positional arguments are rejected.
+- Duplicate names are rejected.
+- Accepts at most one `help="..."` keyword, and the help text must be a String literal.
+- Although one name is technically accepted, this relation is typically meaningful only with two or more names.
+- Not callable at runtime; this macro is only valid inside `@CMD_MAIN` or `@CMD_SUB` blocks.
 
 Example:
+```julia
+@CMD_MAIN MyCLI begin
+    @ARG_FLAG json "--json"
+    @ARG_FLAG yaml "--yaml"
+    @ARG_FLAG toml "--toml"
+
+    @ARGREL_ATMOSTONE json yaml toml
+end
+```
+"""
+macro ARGREL_ATMOSTONE(args...) _placeholder_macro_error("@ARGREL_ATMOSTONE") end
+
+"""
+    @ARGREL_ATLEASTONE a b c ... [help="..."]
+
+Declare a cardinality constraint requiring at least one of a set of option-style arguments.
+
+Behavior:
+- Enforces that at least one listed argument is considered present.
+- Presence is based on parse-time provided tracking, not on final runtime value equality.
+- For count arguments (`@ARG_COUNT`), an argument is considered present when its observed count is greater than zero.
+- If none of the listed arguments is present, parsing fails with a default message, or with the custom `help="..."` message when provided.
+
+Constraints:
+- Requires at least one argument name.
+- All names must refer to previously declared arguments in the same command scope.
+- Only option-style arguments are allowed; positional arguments are rejected.
+- Duplicate names are rejected.
+- Accepts at most one `help="..."` keyword, and the help text must be a String literal.
+- Although one name is technically accepted, this relation is typically most useful with two or more names.
+- Not callable at runtime; this macro is only valid inside `@CMD_MAIN` or `@CMD_SUB` blocks.
+
+Example:
+```julia
+@CMD_MAIN MyCLI begin
+    @ARG_FLAG json "--json"
+    @ARG_FLAG yaml "--yaml"
+
+    @ARGREL_ATLEASTONE json yaml
+end
+```
+"""
+macro ARGREL_ATLEASTONE(args...) _placeholder_macro_error("@ARGREL_ATLEASTONE") end
+
+"""
+    @ARGREL_DEPENDS lhs rhs [help="..."]
+
+Declare a dependency relation between two option-style relation expressions.
+
+Behavior:
+- Enforces: if `lhs` is satisfied, then `rhs` must also be satisfied.
+- Relation checks are evaluated after parsing, using provided-argument tracking rather than final runtime value equality.
+- For regular options and flags, an argument is considered present when it was explicitly provided.
+- For count arguments (`@ARG_COUNT`), presence means the observed count is greater than zero.
+- If the dependency is violated, parsing fails with a default message, or with the custom `help="..."` message when provided.
+
+Supported relation expression forms:
+- `a`
+- `all(a, b, c)`
+- `any(a, b, c)`
+- `not(a)`
+- nested forms such as `not(any(a, b))` or `all(a, not(b))` are accepted as long as they follow the supported grammar
+
+Constraints:
+- Requires exactly two relation expressions.
+- All referenced names must refer to previously declared arguments in the same command scope.
+- Only option-style arguments are allowed; positional arguments are rejected.
+- `all(...)` and `any(...)` require at least one member.
+- Duplicate names inside a single `all(...)` or `any(...)` expression are rejected.
+- Accepts at most one `help="..."` keyword, and the help text must be a String literal.
+- Not callable at runtime; this macro is only valid inside `@CMD_MAIN` or `@CMD_SUB` blocks.
+
+Examples:
 ```julia
 @CMD_MAIN MyCLI begin
     @ARG_FLAG auth "--auth"
     @ARG_FLAG token "--token"
     @ARG_FLAG user "--user"
-    @ARG_REQUIRES auth token user
+
+    @ARGREL_DEPENDS auth any(token, user)
+end
+```
+
+```julia
+@CMD_MAIN MyCLI begin
+    @ARG_FLAG remote "--remote"
+    @ARG_FLAG host "--host"
+    @ARG_FLAG port "--port"
+
+    @ARGREL_DEPENDS remote all(host, port) help="--remote requires both --host and --port"
 end
 ```
 """
-macro ARG_REQUIRES(args...) _placeholder_macro_error("@ARG_REQUIRES") end
+macro ARGREL_DEPENDS(args...) _placeholder_macro_error("@ARGREL_DEPENDS") end
 
 """
-    @ARG_CONFLICTS anchor target1 target2 ...
+    @ARGREL_CONFLICTS lhs rhs [help="..."]
 
-Declare that one option-style argument conflicts with a target set.
+Declare a conflict relation between two option-style relation expressions.
 
 Behavior:
-- If `anchor` is explicitly provided, none of the target arguments may be explicitly provided.
-- Presence is based on parse-time provided tracking, not on final runtime values.
-- For count arguments (`@ARG_COUNT`), occurrence count is included in conflict diagnostics.
-- On violation, parsing fails with a detailed conflict message naming the conflicting targets that were seen.
+- Enforces: `lhs` and `rhs` must not both be satisfied at the same time.
+- Relation checks are evaluated after parsing, using provided-argument tracking rather than final runtime value equality.
+- For regular options and flags, an argument is considered present when it was explicitly provided.
+- For count arguments (`@ARG_COUNT`), presence means the observed count is greater than zero.
+- If the conflict is violated, parsing fails with a default message, or with the custom `help="..."` message when provided.
+
+Supported relation expression forms:
+- `a`
+- `all(a, b, c)`
+- `any(a, b, c)`
+- `not(a)`
+- nested forms such as `not(any(a, b))` are accepted
 
 Constraints:
-- Requires one anchor argument name followed by at least one target argument name.
-- All names must refer to previously declared arguments in the same command scope.
-- The anchor must not also appear in the target list.
-- Positional arguments are not allowed for the anchor or any target.
-- Duplicate target names are rejected.
-- Not callable at runtime (placeholder macro outside DSL expansion).
+- Requires exactly two relation expressions.
+- All referenced names must refer to previously declared arguments in the same command scope.
+- Only option-style arguments are allowed; positional arguments are rejected.
+- `all(...)` and `any(...)` require at least one member.
+- Duplicate names inside a single `all(...)` or `any(...)` expression are rejected.
+- Accepts at most one `help="..."` keyword, and the help text must be a String literal.
+- Not callable at runtime; this macro is only valid inside `@CMD_MAIN` or `@CMD_SUB` blocks.
 
-Example:
+Examples:
 ```julia
 @CMD_MAIN MyCLI begin
     @ARG_FLAG stdin "--stdin"
     @ARG_FLAG file "--file"
     @ARG_FLAG url "--url"
-    @ARG_CONFLICTS stdin file url
+
+    @ARGREL_CONFLICTS stdin any(file, url)
+end
+```
+
+```julia
+@CMD_MAIN MyCLI begin
+    @ARG_FLAG json "--json"
+    @ARG_FLAG yaml "--yaml"
+
+    @ARGREL_CONFLICTS json yaml help="Choose either --json or --yaml, not both"
 end
 ```
 """
-macro ARG_CONFLICTS(args...) _placeholder_macro_error("@ARG_CONFLICTS") end
+macro ARGREL_CONFLICTS(args...) _placeholder_macro_error("@ARGREL_CONFLICTS") end
 
+"""
+    @ARGREL_ONLYONE a b c ... [help="..."]
+
+Declare a cardinality constraint requiring exactly one of a set of option-style arguments.
+
+Behavior:
+- Enforces that exactly one listed argument is considered present.
+- Presence is based on parse-time provided tracking, not on final runtime value equality.
+- For count arguments (`@ARG_COUNT`), an argument is considered present when its observed count is greater than zero.
+- If zero or more than one listed argument is present, parsing fails with a default message, or with the custom `help="..."` message when provided.
+
+Constraints:
+- Requires at least one argument name.
+- All names must refer to previously declared arguments in the same command scope.
+- Only option-style arguments are allowed; positional arguments are rejected.
+- Duplicate names are rejected.
+- Accepts at most one `help="..."` keyword, and the help text must be a String literal.
+- Although one name is technically accepted, this relation is typically meaningful only with two or more names.
+- Not callable at runtime; this macro is only valid inside `@CMD_MAIN` or `@CMD_SUB` blocks.
+
+Example:
+```julia
+@CMD_MAIN MyCLI begin
+    @ARG_FLAG hex "--hex"
+    @ARG_FLAG base64 "--base64"
+    @ARG_FLAG raw "--raw"
+
+    @ARGREL_ONLYONE hex base64 raw
+end
+```
+"""
+macro ARGREL_ONLYONE(args...) _placeholder_macro_error("@ARGREL_ONLYONE") end
+
+"""
+    @ARGREL_ALLORNONE a b c ... [help="..."]
+
+Declare a cardinality constraint requiring either full presence or full absence of a set of option-style arguments.
+
+Behavior:
+- Enforces that either all listed arguments are present, or none of them is present.
+- Presence is based on parse-time provided tracking, not on final runtime value equality.
+- For count arguments (`@ARG_COUNT`), an argument is considered present when its observed count is greater than zero.
+- If only a subset of the listed arguments is present, parsing fails with a default message, or with the custom `help="..."` message when provided.
+
+Constraints:
+- Requires at least one argument name.
+- All names must refer to previously declared arguments in the same command scope.
+- Only option-style arguments are allowed; positional arguments are rejected.
+- Duplicate names are rejected.
+- Accepts at most one `help="..."` keyword, and the help text must be a String literal.
+- Although one name is technically accepted, this relation is typically meaningful only with two or more names.
+- Not callable at runtime; this macro is only valid inside `@CMD_MAIN` or `@CMD_SUB` blocks.
+
+Example:
+```julia
+@CMD_MAIN MyCLI begin
+    @ARG_OPT String host "--host"
+    @ARG_OPT Int port "--port"
+
+    @ARGREL_ALLORNONE host port
+end
+```
+"""
+macro ARGREL_ALLORNONE(args...) _placeholder_macro_error("@ARGREL_ALLORNONE") end
 
 """
     @ARG_TEST name... fn [msg]

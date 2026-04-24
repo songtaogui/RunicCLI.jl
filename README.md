@@ -58,7 +58,7 @@ If your CLI is growing from a script into an interface surface (for users, teams
 | Positional modes (req/def/opt/rest) | ✅ | ✅ | ✅ | ✅ | ⚠️ (pattern-level) |
 | Subcommands | ✅ (main + per-subcommand config) | ❌ | ✅ | ✅ (strong) | ✅ |
 | Multi-value options | ✅ (`@ARG_MULTI`) | ❌ | ✅ | ✅ | ✅ (pattern repetition) |
-| Mutual exclusion groups | ✅ (`@GROUP_EXCL`) | ❌ | ⚠️ (typically manual) | ⚠️ (typically manual) | ⚠️ (expressible in usage, less typed) |
+| Mutual exclusion groups | ✅ (`@ARGREL_ATMOSTONE`) | ❌ | ⚠️ (typically manual) | ⚠️ (typically manual) | ⚠️ (expressible in usage, less typed) |
 | Argument validators | ✅ (`@ARG_TEST`, `@ARG_STREAM`) | ✅ | ✅ | ✅ | ⚠️ (usually post-parse) |
 | Extra args control | ✅ (main + subcommand) | ✅ | ✅ | ✅ | ✅ |
 | Help theming/template system | ✅ (structured template API) | ❌ | ⚠️ (customizable, less templated) | ⚠️ (doc/help oriented) | ❌ |
@@ -104,7 +104,7 @@ using RunicCLI
     @POS_REQ String input help="Input file"
     @POS_OPT String output help="Optional output file"
 
-    @GROUP_EXCL verbose quiet
+    @ARGREL_ATMOSTONE verbose quiet
     @ARG_TEST threads x -> x > 0 "threads must be > 0"
 
     @CMD_SUB "build" "Build artifacts" begin
@@ -154,7 +154,7 @@ end
    - options (`@ARG_*`)
    - positionals (`@POS_*`)
    - validators (`@ARG_TEST`, `@ARG_STREAM`)
-   - exclusion constraints (`@GROUP_EXCL`)
+   - exclusion constraints (`@ARGREL_ATMOSTONE`)
    - subcommands (`@CMD_SUB`)
 3. Parse with:
    - `parse_cli(TypeName, argv)` or
@@ -202,16 +202,18 @@ Only DSL macros are allowed in the block.
 Regular statements are rejected at macro expansion time.
 
 #### Command-level metadata
-- `@CMD_USAGE "..."` (once per scope)
-- `@CMD_DESC "..."` (once per scope)
-- `@CMD_EPILOG "..."` (once per scope)
-- `@ALLOW_EXTRA` (at most once per scope)
+- `@CMD_USAGE "..."` 
+- `@CMD_DESC "..."` 
+- `@CMD_EPILOG "..."` 
+- `@CMD_VERSION "..."` 
+- `@CMD_AUTOHELP`
+- `@ALLOW_EXTRA` 
 
 #### Arguments and constraints
 - Options: `@ARG_REQ`, `@ARG_OPT`, `@ARG_FLAG`, `@ARG_COUNT`, `@ARG_MULTI`
 - Positionals: `@POS_REQ`, `@POS_OPT`, `@POS_REST`
 - Validators: `@ARG_TEST`, `@ARG_STREAM`, 
-- Mutual exclusion: `@GROUP_EXCL`, `@GROUP_INCL`, `@ARG_CONFLICTS`, `@ARG_REQUIRES`
+- Mutual exclusion: `@ARGREL_ATMOSTONE`, `@ARGREL_ATLEASTONE`, `@ARGREL_CONFLICTS`, `@ARGREL_REQUIRES`
 
 #### Subcommands
 - `@CMD_SUB "name" begin ... end`
@@ -362,7 +364,7 @@ Element-wise validator for vectors; scalar fallback otherwise.
 - Scalar: behaves like `@ARG_TEST`
 - Error message includes failed values
 
-> `@GROUP_EXCL a b c ...`
+> `@ARGREL_ATMOSTONE a b c ...`
 Mutual exclusion based on **explicit presence**.
 
 - At most one may be provided
@@ -497,7 +499,7 @@ Common behavior pattern in CLI apps:
 
     @ARG_TEST port x -> x > 0 "port must be positive"
     @ARG_STREAM tag x -> !isempty(x) "tags must be non-empty"
-    @GROUP_EXCL verbose quiet
+    @ARGREL_ATMOSTONE verbose quiet
 
     @CMD_SUB "serve" "Run server" begin
         @ARG_REQ String host "--host" help="Bind host"

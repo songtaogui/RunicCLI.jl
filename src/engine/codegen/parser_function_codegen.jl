@@ -1,4 +1,3 @@
-
 function _compile_leftover_policy(allow_extra::Bool)
     if allow_extra
         return :(nothing)
@@ -35,17 +34,14 @@ function _emit_parser_function(
     option_parse_stmts::Vector{Expr},
     positional_parse_stmts::Vector{Expr},
     post_stmts::Vector{Expr},
-    group_defs_excl::Vector{Vector{Symbol}},
-    group_defs_incl::Vector{Vector{Symbol}},
-    arg_requires_defs,
-    arg_conflicts_defs,
+    relation_defs,
     allow_extra::Bool;
-    strict_leftover::Bool=true
+    strict_leftover::Bool=true,
+    auto_help::Bool=false,
+    help_def_expr=:(nothing),
+    help_path_expr=:(nothing)
 )
-    group_checks_excl = _compile_group_exclusive_checks(group_defs_excl)
-    group_checks_incl = _compile_group_inclusion_checks(group_defs_incl)
-    arg_requires_checks = _compile_arg_requires_checks(arg_requires_defs)
-    arg_conflicts_checks = _compile_arg_conflicts_checks(arg_conflicts_defs)
+    relation_checks = _compile_relation_checks(relation_defs)
     leftover_check = strict_leftover ? _compile_leftover_policy(allow_extra) : :(nothing)
 
     provided_init, provided_finalize = _emit_provided_bookkeeping(ctor_args)
@@ -60,6 +56,16 @@ function _emit_parser_function(
 
     quote
         function $(fname)(argv::Vector{String}; allow_empty_option_value::Bool=false)
+            if $(auto_help) && isempty(argv)
+                local _help_def = $(help_def_expr)
+                local _help_path = $(help_path_expr)
+                if _help_path === nothing
+                    throw($(_gr(:ArgHelpRequested))(_help_def))
+                else
+                    throw($(_gr(:ArgHelpRequested))(_help_def, _help_path))
+                end
+            end
+
             local _args_all = $(_gr(:_split_arguments))(copy(argv))
             local _dd = findfirst(==("--"), _args_all)
 
@@ -91,13 +97,11 @@ function _emit_parser_function(
 
             $(post_stmts...)
             $(provided_finalize...)
-            $(group_checks_excl...)
-            $(group_checks_incl...)
-            $(arg_requires_checks...)
-            $(arg_conflicts_checks...)
+            $(relation_checks...)
             $(leftover_check)
 
             return $(return_expr)
         end
     end
 end
+

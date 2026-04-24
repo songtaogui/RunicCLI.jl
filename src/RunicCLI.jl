@@ -9,18 +9,15 @@ const _RT = RunicCLIRuntime
 _gr(s::Symbol) = GlobalRef(_RT, s)
 
 export @CMD_MAIN, @CMD_SUB
-export @CMD_USAGE, @CMD_DESC, @CMD_EPILOG, @CMD_VERSION
+export @CMD_USAGE, @CMD_DESC, @CMD_EPILOG, @CMD_VERSION, @CMD_AUTOHELP
 export @ARG_REQ, @ARG_OPT, @ARG_FLAG, @ARG_COUNT, @ARG_MULTI
 export @POS_REQ, @POS_OPT, @POS_REST
 export @ARG_TEST, @ARG_STREAM
-export @GROUP_EXCL, @GROUP_INCL, @ARG_REQUIRES, @ARG_CONFLICTS, @ALLOW_EXTRA, @ARG_GROUP
+export @ARGREL_DEPENDS, @ARGREL_CONFLICTS, @ARGREL_ATMOSTONE, @ARGREL_ATLEASTONE, @ARGREL_ONLYONE, @ARGREL_ALLORNONE
+export @ALLOW_EXTRA, @ARG_GROUP
 
 include("core/symbols.jl")
 include("core/ast_utils.jl")
-
-include("spec/dsl_contract.jl")
-include("spec/parse_pipeline.jl")
-include("spec/error_contract.jl")
 
 include("engine/ir_types.jl")
 include("engine/semantic_checks.jl")

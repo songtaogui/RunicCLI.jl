@@ -1,37 +1,134 @@
-function _handle_group_excl!(ctx::_CompileCtx, node::Expr)
-    length(node.args) >= 4 || throw(ArgumentError("@GROUP_EXCL requires at least 2 argument names"))
-    syms = _collect_symbol_args(node, 3, "@GROUP_EXCL", "argument name")
-    _ensure_min_count!(syms, 2, "@GROUP_EXCL", "argument names")
-    _ensure_no_duplicates!(syms, "@GROUP_EXCL", "argument names")
-    push!(ctx.group_defs_excl, syms)
+function _extract_rel_help!(args::Vector{Any}, macro_name::String)
+    help = ""
+    kept = Any[]
+
+    for x in args
+        if x isa Expr && x.head == :(=) && length(x.args) == 2 && x.args[1] == :help
+            isempty(help) || throw(ArgumentError("$(macro_name) accepts at most one help=... keyword"))
+            x.args[2] isa String || throw(ArgumentError("$(macro_name) help must be a String literal"))
+            help = x.args[2]
+        else
+            push!(kept, x)
+        end
+    end
+
+    return kept, help
 end
 
-function _handle_group_incl!(ctx::_CompileCtx, node::Expr)
-    length(node.args) >= 4 || throw(ArgumentError("@GROUP_INCL requires at least 2 argument names"))
-    syms = _collect_symbol_args(node, 3, "@GROUP_INCL", "argument name")
-    _ensure_min_count!(syms, 2, "@GROUP_INCL", "argument names")
-    _ensure_no_duplicates!(syms, "@GROUP_INCL", "argument names")
-    push!(ctx.group_defs_incl, syms)
+function _expect_rel_member_symbol(x, macro_name::String)
+    if x isa Symbol
+        return x
+    elseif x isa QuoteNode && x.value isa Symbol
+        return x.value
+    else
+        throw(ArgumentError("$(macro_name) expects argument names as Symbols"))
+    end
 end
 
-function _handle_arg_requires!(ctx::_CompileCtx, node::Expr)
-    length(node.args) >= 4 || throw(ArgumentError("@ARG_REQUIRES requires an anchor argument and at least one target argument"))
-    anchor = _expect_name_symbol(node.args[3], "@ARG_REQUIRES", "anchor argument")
-    targets = _collect_symbol_args(node, 4, "@ARG_REQUIRES", "target argument")
-    _ensure_min_count!(targets, 1, "@ARG_REQUIRES", "target arguments")
-    anchor in targets && throw(ArgumentError("@ARG_REQUIRES anchor argument must not appear in targets"))
-    _ensure_no_duplicates!(targets, "@ARG_REQUIRES", "target arguments")
-    push!(ctx.arg_requires_defs, ArgRequiresDef(anchor=anchor, targets=targets))
+function _parse_relation_expr(x, macro_name::String)::RelationExpr
+    if x isa Symbol
+        return RelAll(members=[x])
+    elseif x isa QuoteNode && x.value isa Symbol
+        return RelAll(members=[x.value])
+    elseif x isa Expr && x.head == :call && !isempty(x.args)
+        fn = x.args[1]
+
+        if fn == :all
+            length(x.args) >= 2 || throw(ArgumentError("$(macro_name) all(...) requires at least one argument name"))
+            members = [_expect_rel_member_symbol(a, macro_name) for a in x.args[2:end]]
+            _ensure_no_duplicates!(members, macro_name, "all(...) members")
+            return RelAll(members=members)
+
+        elseif fn == :any
+            length(x.args) >= 2 || throw(ArgumentError("$(macro_name) any(...) requires at least one argument name"))
+            members = [_expect_rel_member_symbol(a, macro_name) for a in x.args[2:end]]
+            _ensure_no_duplicates!(members, macro_name, "any(...) members")
+            return RelAny(members=members)
+
+        elseif fn == :not
+            length(x.args) == 2 || throw(ArgumentError("$(macro_name) not(...) requires exactly one inner expression"))
+            return RelNot(inner=_parse_relation_expr(x.args[2], macro_name))
+        end
+    end
+
+    throw(ArgumentError(
+        "$(macro_name) expects a relation expression like a, all(a, b), any(a, b), or not(any(a, b))"
+    ))
 end
 
-function _handle_arg_conflicts!(ctx::_CompileCtx, node::Expr)
-    length(node.args) >= 4 || throw(ArgumentError("@ARG_CONFLICTS requires an anchor argument and at least one target argument"))
-    anchor = _expect_name_symbol(node.args[3], "@ARG_CONFLICTS", "anchor argument")
-    targets = _collect_symbol_args(node, 4, "@ARG_CONFLICTS", "target argument")
-    _ensure_min_count!(targets, 1, "@ARG_CONFLICTS", "target arguments")
-    anchor in targets && throw(ArgumentError("@ARG_CONFLICTS anchor argument must not appear in targets"))
-    _ensure_no_duplicates!(targets, "@ARG_CONFLICTS", "target arguments")
-    push!(ctx.arg_conflicts_defs, ArgConflictsDef(anchor=anchor, targets=targets))
+function _collect_relation_members!(out::Set{Symbol}, expr::RelationExpr)
+    if expr isa RelAll
+        foreach(s -> push!(out, s), expr.members)
+    elseif expr isa RelAny
+        foreach(s -> push!(out, s), expr.members)
+    elseif expr isa RelNot
+        _collect_relation_members!(out, expr.inner)
+    else
+        throw(ArgumentError("internal error: unsupported RelationExpr"))
+    end
+end
+
+function _handle_argrel_depends!(ctx::_CompileCtx, node::Expr)
+    raw = Any[node.args[i] for i in 3:length(node.args)]
+    raw, help = _extract_rel_help!(raw, "@ARGREL_DEPENDS")
+    length(raw) == 2 || throw(ArgumentError("@ARGREL_DEPENDS expects exactly two relation expressions"))
+
+    lhs = _parse_relation_expr(raw[1], "@ARGREL_DEPENDS")
+    rhs = _parse_relation_expr(raw[2], "@ARGREL_DEPENDS")
+
+    push!(ctx.relation_defs, ArgRelationDef(
+        kind=:depends,
+        lhs=lhs,
+        rhs=rhs,
+        help=help
+    ))
+end
+
+function _handle_argrel_conflicts!(ctx::_CompileCtx, node::Expr)
+    raw = Any[node.args[i] for i in 3:length(node.args)]
+    raw, help = _extract_rel_help!(raw, "@ARGREL_CONFLICTS")
+    length(raw) == 2 || throw(ArgumentError("@ARGREL_CONFLICTS expects exactly two relation expressions"))
+
+    lhs = _parse_relation_expr(raw[1], "@ARGREL_CONFLICTS")
+    rhs = _parse_relation_expr(raw[2], "@ARGREL_CONFLICTS")
+
+    push!(ctx.relation_defs, ArgRelationDef(
+        kind=:conflicts,
+        lhs=lhs,
+        rhs=rhs,
+        help=help
+    ))
+end
+
+function _handle_argrel_group_kind!(ctx::_CompileCtx, node::Expr, macro_name::String, kind::Symbol)
+    raw = Any[node.args[i] for i in 3:length(node.args)]
+    raw, help = _extract_rel_help!(raw, macro_name)
+
+    !isempty(raw) || throw(ArgumentError("$(macro_name) requires at least one argument name"))
+    members = [_expect_rel_member_symbol(x, macro_name) for x in raw]
+    _ensure_no_duplicates!(members, macro_name, "argument names")
+
+    push!(ctx.relation_defs, ArgRelationDef(
+        kind=kind,
+        members=members,
+        help=help
+    ))
+end
+
+function _handle_argrel_atmostone!(ctx::_CompileCtx, node::Expr)
+    _handle_argrel_group_kind!(ctx, node, "@ARGREL_ATMOSTONE", :atmostone)
+end
+
+function _handle_argrel_atleastone!(ctx::_CompileCtx, node::Expr)
+    _handle_argrel_group_kind!(ctx, node, "@ARGREL_ATLEASTONE", :atleastone)
+end
+
+function _handle_argrel_onlyone!(ctx::_CompileCtx, node::Expr)
+    _handle_argrel_group_kind!(ctx, node, "@ARGREL_ONLYONE", :onlyone)
+end
+
+function _handle_argrel_allornone!(ctx::_CompileCtx, node::Expr)
+    _handle_argrel_group_kind!(ctx, node, "@ARGREL_ALLORNONE", :allornone)
 end
 
 function _handle_arg_group!(ctx::_CompileCtx, node::Expr)
@@ -128,10 +225,12 @@ function _handle_arg_stream!(ctx::_CompileCtx, node::Expr)
 end
 
 const _COMPILE_BLOCK_HANDLERS = Dict{Symbol,Function}(
-    SYM_GROUP => _handle_group_excl!,
-    SYM_GROUP_INCL => _handle_group_incl!,
-    SYM_ARG_REQUIRES => _handle_arg_requires!,
-    SYM_ARG_CONFLICTS => _handle_arg_conflicts!,
+    SYM_ARGREL_DEPENDS => _handle_argrel_depends!,
+    SYM_ARGREL_CONFLICTS => _handle_argrel_conflicts!,
+    SYM_ARGREL_ATMOSTONE => _handle_argrel_atmostone!,
+    SYM_ARGREL_ATLEASTONE => _handle_argrel_atleastone!,
+    SYM_ARGREL_ONLYONE => _handle_argrel_onlyone!,
+    SYM_ARGREL_ALLORNONE => _handle_argrel_allornone!,
     SYM_ARG_GROUP => _handle_arg_group!,
     SYM_TEST => _handle_arg_test!,
     SYM_STREAM => _handle_arg_stream!,
@@ -162,9 +261,6 @@ function _compile_cmd_block(block::Expr)
            ctx.positional_parse_stmts,
            ctx.post_stmts,
            ctx.argdefs_expr,
-           ctx.group_defs_excl,
-           ctx.group_defs_incl,
-           ctx.arg_requires_defs,
-           ctx.arg_conflicts_defs,
+           ctx.relation_defs,
            ctx.arg_group_defs
 end

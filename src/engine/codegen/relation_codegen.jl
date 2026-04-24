@@ -1,129 +1,134 @@
-function _compile_relation_checks(defs::Vector, kind::Symbol)
+function _compile_relation_expr_eval(expr::RelationExpr, count_var::Symbol)
+    if expr isa RelAll
+        parts = [:(get($(count_var), $(QuoteNode(s)), 0) > 0) for s in expr.members]
+        return isempty(parts) ? :(true) : reduce((a, b) -> :($a && $b), parts)
+    elseif expr isa RelAny
+        parts = [:(get($(count_var), $(QuoteNode(s)), 0) > 0) for s in expr.members]
+        return isempty(parts) ? :(false) : reduce((a, b) -> :($a || $b), parts)
+    elseif expr isa RelNot
+        inner = _compile_relation_expr_eval(expr.inner, count_var)
+        return :(!($inner))
+    else
+        throw(ArgumentError("internal error: unsupported RelationExpr"))
+    end
+end
+
+function _compile_relation_expr_members(expr::RelationExpr)
+    acc = Set{Symbol}()
+
+    function walk(x::RelationExpr)
+        if x isa RelAll
+            foreach(s -> push!(acc, s), x.members)
+        elseif x isa RelAny
+            foreach(s -> push!(acc, s), x.members)
+        elseif x isa RelNot
+            walk(x.inner)
+        else
+            throw(ArgumentError("internal error: unsupported RelationExpr"))
+        end
+    end
+
+    walk(expr)
+    return collect(acc)
+end
+
+function _compile_default_relation_message(rel)
+    if rel.kind == :depends
+        return "Argument relation violated: dependency condition not satisfied"
+    elseif rel.kind == :conflicts
+        return "Argument relation violated: conflicting conditions satisfied together"
+    elseif rel.kind == :atmostone
+        return "Argument relation violated: at most one of the specified arguments may be provided"
+    elseif rel.kind == :atleastone
+        return "Argument relation violated: at least one of the specified arguments must be provided"
+    elseif rel.kind == :onlyone
+        return "Argument relation violated: exactly one of the specified arguments must be provided"
+    elseif rel.kind == :allornone
+        return "Argument relation violated: either provide all specified arguments or provide none"
+    else
+        return "Argument relation violated"
+    end
+end
+
+function _compile_relation_checks(relation_defs)
     checks = Expr[]
 
-    if kind == :group_excl
-        for grp in defs
-            isempty(grp) && continue
-            grp_names = [string(s) for s in grp]
+    for rel in relation_defs
+        msg = isempty(rel.help) ? _compile_default_relation_message(rel) : rel.help
 
-            detail_blocks = Expr[]
-            for (i, s) in enumerate(grp)
-                push!(detail_blocks, quote
-                    local _c = get(_provided_count_map, $(QuoteNode(s)), 0)
-                    if _c > 0
-                        _rel_count += 1
-                        push!(_rel_details, $(grp_names[i]) * " x" * string(_c))
-                    end
-                end)
-            end
+        if rel.kind == :depends
+            lhs_eval = _compile_relation_expr_eval(rel.lhs, :_provided_count_map)
+            rhs_eval = _compile_relation_expr_eval(rel.rhs, :_provided_count_map)
 
             push!(checks, quote
-                local _rel_count = 0
-                local _rel_details = String[]
-                $(detail_blocks...)
+                if $(lhs_eval) && !($(rhs_eval))
+                    $(_gr(:_throw_arg_error))($(msg))
+                end
+            end)
+
+        elseif rel.kind == :conflicts
+            lhs_eval = _compile_relation_expr_eval(rel.lhs, :_provided_count_map)
+            rhs_eval = _compile_relation_expr_eval(rel.rhs, :_provided_count_map)
+
+            push!(checks, quote
+                if $(lhs_eval) && $(rhs_eval)
+                    $(_gr(:_throw_arg_error))($(msg))
+                end
+            end)
+
+        elseif rel.kind == :atmostone
+            members = rel.members
+            count_terms = [:(get(_provided_count_map, $(QuoteNode(s)), 0) > 0 ? 1 : 0) for s in members]
+            count_expr = isempty(count_terms) ? :(0) : reduce((a, b) -> :($a + $b), count_terms)
+
+            push!(checks, quote
+                local _rel_count = $(count_expr)
                 if _rel_count > 1
-                    $(_gr(:_throw_arg_error))($(_gr(:_msg_mutually_exclusive_args))($(grp_names), _rel_details))
+                    $(_gr(:_throw_arg_error))($(msg))
                 end
             end)
-        end
 
-    elseif kind == :group_incl
-        for grp in defs
-            isempty(grp) && continue
-            grp_names = [string(s) for s in grp]
-
-            detail_blocks = Expr[]
-            for s in grp
-                push!(detail_blocks, quote
-                    if get(_provided_count_map, $(QuoteNode(s)), 0) > 0
-                        _rel_count += 1
-                    end
-                end)
-            end
+        elseif rel.kind == :atleastone
+            members = rel.members
+            count_terms = [:(get(_provided_count_map, $(QuoteNode(s)), 0) > 0 ? 1 : 0) for s in members]
+            count_expr = isempty(count_terms) ? :(0) : reduce((a, b) -> :($a + $b), count_terms)
 
             push!(checks, quote
-                local _rel_count = 0
-                $(detail_blocks...)
+                local _rel_count = $(count_expr)
                 if _rel_count < 1
-                    $(_gr(:_throw_arg_error))($(_gr(:_msg_at_least_one_required))($(grp_names)))
+                    $(_gr(:_throw_arg_error))($(msg))
                 end
             end)
-        end
 
-    elseif kind == :requires
-        for rd in defs
-            anchor = rd.anchor
-            targets = rd.targets
-            isempty(targets) && continue
-            target_names = [string(s) for s in targets]
-
-            detail_blocks = Expr[]
-            for (i, s) in enumerate(targets)
-                push!(detail_blocks, quote
-                    local _c = get(_provided_count_map, $(QuoteNode(s)), 0)
-                    if _c > 0
-                        _rel_target_count += 1
-                        push!(_rel_target_details, $(target_names[i]) * " x" * string(_c))
-                    end
-                end)
-            end
+        elseif rel.kind == :onlyone
+            members = rel.members
+            count_terms = [:(get(_provided_count_map, $(QuoteNode(s)), 0) > 0 ? 1 : 0) for s in members]
+            count_expr = isempty(count_terms) ? :(0) : reduce((a, b) -> :($a + $b), count_terms)
 
             push!(checks, quote
-                local _rel_anchor_count = get(_provided_count_map, $(QuoteNode(anchor)), 0)
-                if _rel_anchor_count > 0
-                    local _rel_target_count = 0
-                    local _rel_target_details = String[]
-                    $(detail_blocks...)
-                    if _rel_target_count < 1
-                        $(_gr(:_throw_arg_error))($(_gr(:_msg_arg_requires))($(string(anchor)), $(target_names)))
-                    end
+                local _rel_count = $(count_expr)
+                if _rel_count != 1
+                    $(_gr(:_throw_arg_error))($(msg))
                 end
             end)
-        end
 
-    elseif kind == :conflicts
-        for cd in defs
-            anchor = cd.anchor
-            targets = cd.targets
-            isempty(targets) && continue
-            target_names = [string(s) for s in targets]
-
-            detail_blocks = Expr[]
-            for (i, s) in enumerate(targets)
-                push!(detail_blocks, quote
-                    local _c = get(_provided_count_map, $(QuoteNode(s)), 0)
-                    if _c > 0
-                        push!(_rel_hits, $(target_names[i]) * " x" * string(_c))
-                    end
-                end)
-            end
+        elseif rel.kind == :allornone
+            members = rel.members
+            count_terms = [:(get(_provided_count_map, $(QuoteNode(s)), 0) > 0 ? 1 : 0) for s in members]
+            count_expr = isempty(count_terms) ? :(0) : reduce((a, b) -> :($a + $b), count_terms)
+            n = length(members)
 
             push!(checks, quote
-                local _rel_anchor_count = get(_provided_count_map, $(QuoteNode(anchor)), 0)
-                if _rel_anchor_count > 0
-                    local _rel_hits = String[]
-                    $(detail_blocks...)
-                    if !isempty(_rel_hits)
-                        $(_gr(:_throw_arg_error))($(_gr(:_msg_arg_conflicts))($(string(anchor)), _rel_hits))
-                    end
+                local _rel_count = $(count_expr)
+                if !(_rel_count == 0 || _rel_count == $(n))
+                    $(_gr(:_throw_arg_error))($(msg))
                 end
             end)
+
+        else
+            throw(ArgumentError("internal error: unsupported relation kind $(rel.kind)"))
         end
-    else
-        throw(ArgumentError("internal error: unsupported relation check kind $(kind)"))
     end
 
     return checks
 end
-
-_compile_group_exclusive_checks(group_defs::Vector{Vector{Symbol}}) =
-    _compile_relation_checks(group_defs, :group_excl)
-
-_compile_group_inclusion_checks(group_defs::Vector{Vector{Symbol}}) =
-    _compile_relation_checks(group_defs, :group_incl)
-
-_compile_arg_requires_checks(req_defs) =
-    _compile_relation_checks(req_defs, :requires)
-
-_compile_arg_conflicts_checks(conf_defs) =
-    _compile_relation_checks(conf_defs, :conflicts)

@@ -210,10 +210,10 @@ See [`@ARG_TEST`](@ref) for examples of combining these helpers and writing cust
 
 ### Relationship macros
 
-- `@GROUP_EXCL a b c ...` — mutually exclusive explicit presence
-- `@GROUP_INCL a b c ...` — at least one explicitly present
-- `@ARG_REQUIRES anchor target1 target2 ...` — anchor requires one target
-- `@ARG_CONFLICTS anchor target1 target2 ...` — anchor conflicts with targets
+- `@ARGREL_ATMOSTONE a b c ...` — mutually exclusive explicit presence
+- `@ARGREL_ATLEASTONE a b c ...` — at least one explicitly present
+- `@ARGREL_REQUIRES anchor target1 target2 ...` — anchor requires one target
+- `@ARGREL_CONFLICTS anchor target1 target2 ...` — anchor conflicts with targets
 
 All of the relation macros above are presence-based: they inspect whether arguments were explicitly provided,
 not whether they acquired a final value through defaulting or fallback.
@@ -257,7 +257,7 @@ Properties:
 - Fallback targets must be value-bearing non-rest arguments.
 - Cycles such as `a -> b -> a` are rejected during macro expansion.
 
-This makes fallback distinct from relation macros like `@ARG_REQUIRES`, which are based on explicit presence.
+This makes fallback distinct from relation macros, which are based on explicit presence.
 
 ---
 

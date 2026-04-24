@@ -1,4 +1,3 @@
-
 function _expect_string_literal_at(node::Expr, idx::Int, macro_name::String, expect_ctx::String="")
     length(node.args) >= idx || throw(ArgumentError(
         isempty(expect_ctx) ?
@@ -16,7 +15,6 @@ function _expect_string_literal_at(node::Expr, idx::Int, macro_name::String, exp
     return s
 end
 
-
 function _parse_cmd_meta_block(
     block::Expr;
     initial_desc::String="",
@@ -29,12 +27,14 @@ function _parse_cmd_meta_block(
     epilog = ""
     version = ""
     allow_extra = false
+    auto_help = false
 
     seen_usage = false
     seen_desc = desc_predeclared || !isempty(initial_desc)
     seen_epilog = false
     seen_version = false
     seen_allow = false
+    seen_auto_help = false
 
     other_nodes = Expr[]
 
@@ -66,10 +66,23 @@ function _parse_cmd_meta_block(
             allow_extra = true
             seen_allow = true
 
+        elseif m == SYM_AUTOHELP
+            seen_auto_help && throw(ArgumentError("@CMD_AUTOHELP is duplicated in $(dup_ctx)"))
+            auto_help = true
+            seen_auto_help = true
+
         else
             push!(other_nodes, node)
         end
     end
 
-    return (usage=usage, desc=desc, epilog=epilog, version=version, allow_extra=allow_extra, other_nodes=other_nodes)
+    return (
+        usage=usage,
+        desc=desc,
+        epilog=epilog,
+        version=version,
+        allow_extra=allow_extra,
+        auto_help=auto_help,
+        other_nodes=other_nodes
+    )
 end

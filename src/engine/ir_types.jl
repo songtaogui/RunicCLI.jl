@@ -27,10 +27,7 @@ mutable struct _CompileCtx
     positional_parse_stmts::Vector{Expr}
     post_stmts::Vector{Expr}
     argdefs_expr::Vector{Expr}
-    group_defs_excl::Vector{Vector{Symbol}}
-    group_defs_incl::Vector{Vector{Symbol}}
-    arg_requires_defs::Vector{ArgRequiresDef}
-    arg_conflicts_defs::Vector{ArgConflictsDef}
+    relation_defs::Vector{ArgRelationDef}
     arg_group_defs::Vector{ArgGroupDef}
     fallback_map::Dict{Symbol,Symbol}
     declared_names::Set{Symbol}
@@ -41,8 +38,8 @@ end
 
 _CompileCtx() = _CompileCtx(
     Expr[], Expr[], Expr[], Expr[], Expr[],
-    Vector{Vector{Symbol}}(), Vector{Vector{Symbol}}(),
-    ArgRequiresDef[], ArgConflictsDef[], ArgGroupDef[],
+    ArgRelationDef[],
+    ArgGroupDef[],
     Dict{Symbol,Symbol}(),
     Set{Symbol}(), Dict{Symbol,ArgKind}(),
     false, Dict{String,Symbol}()
@@ -56,4 +53,5 @@ Base.@kwdef struct NormalizedSubCmd
     version::String = ""
     block::Expr
     allow_extra::Bool = false
+    auto_help::Bool = false
 end

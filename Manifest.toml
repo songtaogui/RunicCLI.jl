@@ -28,13 +28,13 @@ version = "1.2.2"
 deps = ["MacroTools", "Reexport", "RunicCLIRuntime"]
 path = "."
 uuid = "67ca3c63-b4b2-4ee3-a21a-d0ea65885ced"
-version = "0.2.3"
+version = "0.4.1"
 
 [[deps.RunicCLIRuntime]]
 deps = ["Dates", "TOML", "TextWrap"]
 path = "/home/stgui/sftw/02_diy/00_stgui/RunicCLIRuntime/"
 uuid = "2d9a0462-f75e-4e7b-a4a8-2f5f7a313918"
-version = "0.3.0"
+version = "0.4.1"
 
 [[deps.TOML]]
 deps = ["Dates"]

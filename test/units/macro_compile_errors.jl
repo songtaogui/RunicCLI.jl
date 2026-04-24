@@ -42,7 +42,7 @@ using RunicCLI
         ex_unknown = quote
             @CMD_MAIN BadGroupUnknown begin
                 @ARG_FLAG a "-a"
-                @GROUP_EXCL a b
+                @ARGREL_ATMOSTONE a b
             end
         end
         @test_throws ArgumentError macroexpand(@__MODULE__, ex_unknown)
@@ -51,7 +51,7 @@ using RunicCLI
             @CMD_MAIN BadGroupPos begin
                 @POS_REQ String x
                 @ARG_FLAG y "-y"
-                @GROUP_EXCL x y
+                @ARGREL_ATMOSTONE x y
             end
         end
         @test_throws ArgumentError macroexpand(@__MODULE__, ex_pos_not_allowed)

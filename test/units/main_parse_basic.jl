@@ -18,16 +18,45 @@ using RunicCLI
     @POS_OPT Int retry help="Retry count"
     @POS_REST String rest help="Remaining args"
 
-    @ARG_TEST port x->x>0 "port must be > 0"
-    @ARG_STREAM nums x->x>0 "all nums must be > 0"
+    @ARG_TEST port x -> x > 0 "port must be > 0"
+    @ARG_STREAM nums x -> x > 0 "all nums must be > 0"
 
-    @GROUP_EXCL verbose quiet
+    @ARGREL_ATMOSTONE verbose quiet help="verbose and quiet cannot be used together"
+end
+
+@CMD_MAIN AutoHelpMainCmdForTest begin
+    @CMD_USAGE "automain [OPTIONS] SRC"
+    @CMD_DESC "Main command with auto help."
+    @CMD_AUTOHELP
+
+    @ARG_REQ Int port "-p" "--port" help="Port number"
+    @POS_REQ String src help="Source path"
+end
+
+@CMD_MAIN AutoHelpSubCmdForTest begin
+    @CMD_USAGE "autosub [OPTIONS] <SUBCOMMAND>"
+    @CMD_DESC "Command with subcommand auto help."
+
+    @ARG_FLAG verbose "-v" "--verbose" help="Verbose switch"
+
+    @CMD_SUB "run" begin
+        @CMD_DESC "Run subcommand."
+        @CMD_AUTOHELP
+
+        @ARG_REQ Int count "-n" "--count" help="Count value"
+    end
 end
 
 @testset "main parser basic behavior" begin
     @testset "success case" begin
-        argv = ["--port", "8080", "--host", "example.com", "--ratio", "0.25",
-                "-n", "1", "-n", "2", "input.txt", "output.txt", "3", "a", "b"]
+        argv = [
+            "--port", "8080",
+            "--host", "example.com",
+            "--ratio", "0.25",
+            "-n", "1",
+            "-n", "2",
+            "input.txt", "output.txt", "3", "a", "b"
+        ]
         obj = parse_cli(BasicCmdForTest, argv)
 
         @test obj.port == 8080
@@ -53,13 +82,36 @@ end
         @test isempty(obj.rest)
     end
 
-    @testset "group exclusive conflict" begin
-        @test_throws RunicCLI.ArgParseError parse_cli(BasicCmdForTest, ["-p", "1", "-v", "-q", "src"])
+    @testset "at most one conflict" begin
+        err = try
+            parse_cli(BasicCmdForTest, ["-p", "1", "-v", "-q", "src"])
+            nothing
+        catch e
+            e
+        end
+
+        @test err isa RunicCLI.ArgParseError
+        @test occursin("verbose and quiet cannot be used together", err.message)
     end
 
     @testset "validators" begin
-        @test_throws RunicCLI.ArgParseError parse_cli(BasicCmdForTest, ["-p", "0", "src"])
-        @test_throws RunicCLI.ArgParseError parse_cli(BasicCmdForTest, ["-p", "1", "-n", "-1", "src"])
+        err1 = try
+            parse_cli(BasicCmdForTest, ["-p", "0", "src"])
+            nothing
+        catch e
+            e
+        end
+        @test err1 isa RunicCLI.ArgParseError
+        @test occursin("port must be > 0", err1.message)
+
+        err2 = try
+            parse_cli(BasicCmdForTest, ["-p", "1", "-n", "-1", "src"])
+            nothing
+        catch e
+            e
+        end
+        @test err2 isa RunicCLI.ArgParseError
+        @test occursin("all nums must be > 0", err2.message)
     end
 
     @testset "required and duplicate option failures" begin
@@ -67,7 +119,7 @@ end
         @test_throws RunicCLI.ArgParseError parse_cli(BasicCmdForTest, ["-p", "1", "-p", "2", "src"])
     end
 
-    @testset "negative positional via -- passthrough" begin
+    @testset "negative positional via double dash passthrough" begin
         obj = parse_cli(BasicCmdForTest, ["-p", "9", "--", "-1"])
         @test obj.src == "-1"
     end
@@ -78,9 +130,28 @@ end
             @test false
         catch e
             @test e isa RunicCLI.ArgHelpRequested
-            # @test occursin("Usage:", e.message)
             @test occursin("Options:", e.message)
             @test occursin("Positional Arguments:", e.message)
+        end
+    end
+
+    @testset "main auto help" begin
+        try
+            parse_cli(AutoHelpMainCmdForTest, String[])
+            @test false
+        catch e
+            @test e isa RunicCLI.ArgHelpRequested
+            @test occursin("Options:", e.message)
+        end
+    end
+
+    @testset "subcommand auto help" begin
+        try
+            parse_cli(AutoHelpSubCmdForTest, ["run"])
+            @test false
+        catch e
+            @test e isa RunicCLI.ArgHelpRequested
+            @test occursin("Run subcommand.", e.message)
         end
     end
 end

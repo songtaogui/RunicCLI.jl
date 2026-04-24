@@ -1,3 +1,60 @@
+function _validator_default_message(style::Symbol)
+    style in (:multi, :pos_rest) ? "Streaming validation failed" : "Argument test failed"
+end
+
+function _emit_scalar_validator_stmt(
+    nm::Symbol,
+    vfun_expr,
+    vmsg_text::String,
+    default_msg::String;
+    skip_nothing::Bool=false
+)
+    vmsg_expr = isempty(vmsg_text) ? :(nothing) : vmsg_text
+
+    cond = skip_nothing ? :(!(isnothing($(nm)) || _vfn($(nm)))) : :(!_vfn($(nm)))
+
+    return quote
+        local _vs = $(_gr(:validator))($(vfun_expr))
+        local _vfn = $(_gr(:validator_fn))(_vs)
+        local _final_msg = $(_gr(:validator_resolve_message))(_vs, $(vmsg_expr), $(default_msg))
+        if $(cond)
+            local _vname = $(_gr(:validator_name))(_vs)
+            $(_gr(:_throw_arg_error))(
+                "Invalid arg: " * $(string(nm)) * " => " * _final_msg *
+                "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")"
+            )
+        end
+    end
+end
+
+function _emit_stream_validator_stmt(
+    nm::Symbol,
+    vfun_expr,
+    vmsg_text::String,
+    default_msg::String
+)
+    vmsg_expr = isempty(vmsg_text) ? :(nothing) : vmsg_text
+
+    return quote
+        local _vs = $(_gr(:validator))($(vfun_expr))
+        local _vfn = $(_gr(:validator_fn))(_vs)
+        local _vname = $(_gr(:validator_name))(_vs)
+        local _final_msg = $(_gr(:validator_resolve_message))(_vs, $(vmsg_expr), $(default_msg))
+        local _fails = String[]
+        for _v in $(nm)
+            if !_vfn(_v)
+                push!(_fails, repr(_v))
+            end
+        end
+        if !isempty(_fails)
+            $(_gr(:_throw_arg_error))(
+                "Invalid arg: " * $(string(nm)) * " => " * _final_msg *
+                "\n (validator=" * _vname * ", failed_values=[" * join(_fails, ", ") * "])"
+            )
+        end
+    end
+end
+
 function _parse_decl_pipeline!(ctx::_CompileCtx, spec::ArgDeclSpec, node::Expr)
     idx = 3
 
@@ -28,7 +85,14 @@ function _parse_decl_pipeline!(ctx::_CompileCtx, spec::ArgDeclSpec, node::Expr)
         isempty(flags) && throw(ArgumentError("$(spec.macro_name) requires at least one flag"))
         _register_flags!(ctx, flags, nm, spec.macro_name)
     else
-        isempty(meta.remain) || throw(ArgumentError("$(spec.macro_name) supports only keyword metadata: help=\"...\", help_name=\"...\"$(spec.allow_env ? ", env=\"...\"" : "")$(spec.allow_default ? ", default=..." : "")$(spec.allow_fallback ? ", fallback=other_arg" : ""), vfun=..., vmsg=\"...\""))
+        isempty(meta.remain) || throw(ArgumentError(
+            "$(spec.macro_name) supports only keyword metadata: " *
+            "help=\"...\", help_name=\"...\"" *
+            "$(spec.allow_env ? ", env=\"...\"" : "")" *
+            "$(spec.allow_default ? ", default=..." : "")" *
+            "$(spec.allow_fallback ? ", fallback=other_arg" : "")" *
+            ", vfun=..., vmsg=\"...\""
+        ))
     end
 
     push!(ctx.declared_names, nm)
@@ -67,22 +131,9 @@ function _emit_decl_opt_required!(ctx::_CompileCtx, d)
     push!(ctx.argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_OPTION)), name=$(QuoteNode(nm)), T=$(T), flags=$(flags), required=true, help=$(help), help_name=$(help_name))))
 
     if d.vfun !== nothing
-        push!(ctx.post_stmts, quote
-            local _vs = $(_gr(:validator))($(d.vfun))
-            local _vfn = $(_gr(:validator_fn))(_vs)
-            local _final_msg = $(_gr(:validator_resolve_message))(
-                _vs,
-                $(isempty(d.vmsg) ? :(nothing) : d.vmsg),
-                "Argument test failed"
-            )
-            if !_vfn($(nm))
-                local _vname = $(_gr(:validator_name))(_vs)
-                $(_gr(:_throw_arg_error))(
-                    "Invalid arg: " * $(string(nm)) * " => " * _final_msg *
-                    "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")"
-                )
-            end
-        end)
+        push!(ctx.post_stmts, _emit_scalar_validator_stmt(
+            nm, d.vfun, d.vmsg, _validator_default_message(d.style); skip_nothing=false
+        ))
     end
 end
 
@@ -144,22 +195,9 @@ function _emit_decl_opt_optional!(ctx::_CompileCtx, d)
     )))
 
     if d.vfun !== nothing
-        push!(ctx.post_stmts, quote
-            local _vs = $(_gr(:validator))($(d.vfun))
-            local _vfn = $(_gr(:validator_fn))(_vs)
-            local _final_msg = $(_gr(:validator_resolve_message))(
-                _vs,
-                $(isempty(d.vmsg) ? :(nothing) : d.vmsg),
-                "Argument test failed"
-            )
-            if !(isnothing($(nm)) || _vfn($(nm)))
-                local _vname = $(_gr(:validator_name))(_vs)
-                $(_gr(:_throw_arg_error))(
-                    "Invalid arg: " * $(string(nm)) * " => " * _final_msg *
-                    "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")"
-                )
-            end
-        end)
+        push!(ctx.post_stmts, _emit_scalar_validator_stmt(
+            nm, d.vfun, d.vmsg, _validator_default_message(d.style); skip_nothing=true
+        ))
     end
 end
 
@@ -177,22 +215,9 @@ function _emit_decl_flag!(ctx::_CompileCtx, d)
     push!(ctx.argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_FLAG)), name=$(QuoteNode(nm)), T=Bool, flags=$(flags), help=$(help), help_name=$(help_name))))
 
     if d.vfun !== nothing
-        push!(ctx.post_stmts, quote
-            local _vs = $(_gr(:validator))($(d.vfun))
-            local _vfn = $(_gr(:validator_fn))(_vs)
-            local _final_msg = $(_gr(:validator_resolve_message))(
-                _vs,
-                $(isempty(d.vmsg) ? :(nothing) : d.vmsg),
-                "Argument test failed"
-            )
-            if !_vfn($(nm))
-                local _vname = $(_gr(:validator_name))(_vs)
-                $(_gr(:_throw_arg_error))(
-                    "Invalid arg: " * $(string(nm)) * " => " * _final_msg *
-                    "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")"
-                )
-            end
-        end)
+        push!(ctx.post_stmts, _emit_scalar_validator_stmt(
+            nm, d.vfun, d.vmsg, _validator_default_message(d.style); skip_nothing=false
+        ))
     end
 end
 
@@ -212,22 +237,9 @@ function _emit_decl_count!(ctx::_CompileCtx, d)
     push!(ctx.argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_COUNT)), name=$(QuoteNode(nm)), T=Int, flags=$(flags), help=$(help), help_name=$(help_name))))
 
     if d.vfun !== nothing
-        push!(ctx.post_stmts, quote
-            local _vs = $(_gr(:validator))($(d.vfun))
-            local _vfn = $(_gr(:validator_fn))(_vs)
-            local _final_msg = $(_gr(:validator_resolve_message))(
-                _vs,
-                $(isempty(d.vmsg) ? :(nothing) : d.vmsg),
-                "Argument test failed"
-            )
-            if !_vfn($(nm))
-                local _vname = $(_gr(:validator_name))(_vs)
-                $(_gr(:_throw_arg_error))(
-                    "Invalid arg: " * $(string(nm)) * " => " * _final_msg *
-                    "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")"
-                )
-            end
-        end)
+        push!(ctx.post_stmts, _emit_scalar_validator_stmt(
+            nm, d.vfun, d.vmsg, _validator_default_message(d.style); skip_nothing=false
+        ))
     end
 end
 
@@ -244,28 +256,9 @@ function _emit_decl_multi!(ctx::_CompileCtx, d)
     push!(ctx.argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_OPTION_MULTI)), name=$(QuoteNode(nm)), T=$(T), flags=$(flags), help=$(help), help_name=$(help_name))))
 
     if d.vfun !== nothing
-        push!(ctx.post_stmts, quote
-            local _vs = $(_gr(:validator))($(d.vfun))
-            local _vfn = $(_gr(:validator_fn))(_vs)
-            local _vname = $(_gr(:validator_name))(_vs)
-            local _final_msg = $(_gr(:validator_resolve_message))(
-                _vs,
-                $(isempty(d.vmsg) ? :(nothing) : d.vmsg),
-                "Argument test failed"
-            )
-            local _fails = String[]
-            for _v in $(nm)
-                if !_vfn(_v)
-                    push!(_fails, repr(_v))
-                end
-            end
-            if !isempty(_fails)
-                $(_gr(:_throw_arg_error))(
-                    "Invalid arg: " * $(string(nm)) * " => " * _final_msg *
-                    "\n (validator=" * _vname * ", failed_values=[" * join(_fails, ", ") * "])"
-                )
-            end
-        end)
+        push!(ctx.post_stmts, _emit_stream_validator_stmt(
+            nm, d.vfun, d.vmsg, _validator_default_message(d.style)
+        ))
     end
 end
 
@@ -283,22 +276,9 @@ function _emit_decl_pos_required!(ctx::_CompileCtx, d)
     push!(ctx.argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_POS_REQUIRED)), name=$(QuoteNode(nm)), T=$(T), required=true, help=$(help), help_name=$(help_name))))
 
     if d.vfun !== nothing
-        push!(ctx.post_stmts, quote
-            local _vs = $(_gr(:validator))($(d.vfun))
-            local _vfn = $(_gr(:validator_fn))(_vs)
-            local _final_msg = $(_gr(:validator_resolve_message))(
-                _vs,
-                $(isempty(d.vmsg) ? :(nothing) : d.vmsg),
-                "Argument test failed"
-            )
-            if !_vfn($(nm))
-                local _vname = $(_gr(:validator_name))(_vs)
-                $(_gr(:_throw_arg_error))(
-                    "Invalid arg: " * $(string(nm)) * " => " * _final_msg *
-                    "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")"
-                )
-            end
-        end)
+        push!(ctx.post_stmts, _emit_scalar_validator_stmt(
+            nm, d.vfun, d.vmsg, _validator_default_message(d.style); skip_nothing=false
+        ))
     end
 end
 
@@ -357,22 +337,9 @@ function _emit_decl_pos_optional!(ctx::_CompileCtx, d)
     )))
 
     if d.vfun !== nothing
-        push!(ctx.post_stmts, quote
-            local _vs = $(_gr(:validator))($(d.vfun))
-            local _vfn = $(_gr(:validator_fn))(_vs)
-            local _final_msg = $(_gr(:validator_resolve_message))(
-                _vs,
-                $(isempty(d.vmsg) ? :(nothing) : d.vmsg),
-                "Argument test failed"
-            )
-            if !(isnothing($(nm)) || _vfn($(nm)))
-                local _vname = $(_gr(:validator_name))(_vs)
-                $(_gr(:_throw_arg_error))(
-                    "Invalid arg: " * $(string(nm)) * " => " * _final_msg *
-                    "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")"
-                )
-            end
-        end)
+        push!(ctx.post_stmts, _emit_scalar_validator_stmt(
+            nm, d.vfun, d.vmsg, _validator_default_message(d.style); skip_nothing=true
+        ))
     end
 end
 
@@ -391,28 +358,9 @@ function _emit_decl_pos_rest!(ctx::_CompileCtx, d)
     push!(ctx.argdefs_expr, :($(_gr(:ArgDef))(kind=$(_gr(:AK_POS_REST)), name=$(QuoteNode(nm)), T=$(T), help=$(help), help_name=$(help_name))))
 
     if d.vfun !== nothing
-        push!(ctx.post_stmts, quote
-            local _vs = $(_gr(:validator))($(d.vfun))
-            local _vfn = $(_gr(:validator_fn))(_vs)
-            local _vname = $(_gr(:validator_name))(_vs)
-            local _final_msg = $(_gr(:validator_resolve_message))(
-                _vs,
-                $(isempty(d.vmsg) ? :(nothing) : d.vmsg),
-                "Streaming validation failed"
-            )
-            local _fails = String[]
-            for _v in $(nm)
-                if !_vfn(_v)
-                    push!(_fails, repr(_v))
-                end
-            end
-            if !isempty(_fails)
-                $(_gr(:_throw_arg_error))(
-                    "Invalid arg: " * $(string(nm)) * " => " * _final_msg *
-                    "\n (validator=" * _vname * ", failed_values=[" * join(_fails, ", ") * "])"
-                )
-            end
-        end)
+        push!(ctx.post_stmts, _emit_stream_validator_stmt(
+            nm, d.vfun, d.vmsg, _validator_default_message(d.style)
+        ))
     end
 end
 

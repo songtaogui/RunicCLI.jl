@@ -1,4 +1,5 @@
-function _parse_sub_signature(node::Expr)
+"""Parse `@CMD_SUB` signature into `(name, desc, body_block)`."""
+function parse_sub_signature(node::Expr)
     length(node.args) >= 4 || throw(ArgumentError("@CMD_SUB expects \"name\" begin ... end or \"name\" \"desc\" begin ... end"))
 
     sub_name = node.args[3]

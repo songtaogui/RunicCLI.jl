@@ -1,70 +1,78 @@
 
-function _extract_macro_symbol(x)::Union{Symbol,Nothing}
+"""Return a symbol extracted from Symbol/QuoteNode/dotted/quoted AST forms, or `nothing`."""
+function extract_macro_symbol(x)::Union{Symbol,Nothing}
     if x isa Symbol
         return x
     elseif x isa QuoteNode && x.value isa Symbol
         return x.value
     elseif x isa Expr
         if x.head == :. && !isempty(x.args)
-            return _extract_macro_symbol(x.args[end])
+            return extract_macro_symbol(x.args[end])
         elseif x.head == :quote && length(x.args) == 1
-            return _extract_macro_symbol(x.args[1])
+            return extract_macro_symbol(x.args[1])
         end
     end
     return nothing
 end
 
-function _getmacroname(ex::Expr)::Union{Symbol,Nothing}
+"""Get macro name symbol from a `:macrocall` expression, or `nothing` if not applicable."""
+function getmacroname(ex::Expr)::Union{Symbol,Nothing}
     if ex.head != :macrocall || isempty(ex.args)
         return nothing
     end
-    sym = _extract_macro_symbol(ex.args[1])
+    sym = extract_macro_symbol(ex.args[1])
     return sym
 end
 
-@inline function _macrocall_user_args(ex::Expr)::Vector{Any}
+"""Return user arguments of a macro call, excluding macro token and line info."""
+@inline function macrocall_user_args(ex::Expr)::Vector{Any}
     if ex.head != :macrocall || length(ex.args) < 3
         return Any[]
     end
     return Any[ex.args[i] for i in 3:length(ex.args)]
 end
 
-function _macrocall_info(ex::Expr)
-    name = _getmacroname(ex)
+"""Build `(name, args, node)` info tuple for a macro call, or `nothing`."""
+function macrocall_info(ex::Expr)
+    name = getmacroname(ex)
     name === nothing && return nothing
-    return (name=name, args=_macrocall_user_args(ex), node=ex)
+    return (name=name, args=macrocall_user_args(ex), node=ex)
 end
 
-function _collect_macrocall_infos(block::Expr)
+"""Collect parsed macrocall info objects from a block expression."""
+function collect_macrocall_infos(block::Expr)
     infos = Any[]
-    for n in _getmacrocalls(block)
-        info = _macrocall_info(n)
+    for n in getmacrocalls(block)
+        info =macrocall_info(n)
         info === nothing || push!(infos, info)
     end
     return infos
 end
 
-@inline function _flatten_block_nodes!(x, out::Vector{Any})
+"""Flatten nested `:block` nodes into a linear node vector, skipping line markers and `nothing`."""
+@inline function flatten_block_nodes!(x, out::Vector{Any})
     if x isa LineNumberNode || x === nothing
         return
     elseif x isa Expr && x.head == :block
         for a in x.args
-            _flatten_block_nodes!(a, out)
+            flatten_block_nodes!(a, out)
         end
     else
         push!(out, x)
     end
 end
 
-function _getmacrocalls(block::Expr)
+"""Return an iterator of all macrocall expressions in a block (flattened)."""
+function getmacrocalls(block::Expr)
     nodes = Any[]
-    _flatten_block_nodes!(block, nodes)
+    flatten_block_nodes!(block, nodes)
     return Iterators.filter(x -> x isa Expr && x.head == :macrocall, nodes)
 end
 
-function _nonmacro_nodes(block::Expr)::Vector{Any}
+"""Return flattened non-macro nodes from a block."""
+function nonmacro_nodes(block::Expr)::Vector{Any}
     nodes = Any[]
-    _flatten_block_nodes!(block, nodes)
+    flatten_block_nodes!(block, nodes)
 
     out = Any[]
     for x in nodes
@@ -77,7 +85,8 @@ function _nonmacro_nodes(block::Expr)::Vector{Any}
     return out
 end
 
-@inline function _string_literal_value(x)::Union{String,Nothing}
+"""Return string literal content from String/QuoteNode, or `nothing`."""
+@inline function string_literal_value(x)::Union{String,Nothing}
     if x isa String
         return x
     elseif x isa QuoteNode && x.value isa String
@@ -87,13 +96,14 @@ end
     end
 end
 
-@inline function _kw_pair(a)::Union{Nothing,Tuple{Any,Any}}
+"""Parse a keyword-like AST node into `(key, value)`, or return `nothing`."""
+@inline function kw_pair(a)::Union{Nothing,Tuple{Any,Any}}
     if a isa Expr
         if (a.head == :(=) || a.head == :kw) && length(a.args) == 2
             return (a.args[1], a.args[2])
         elseif a.head == :parameters
             for x in a.args
-                p = _kw_pair(x)
+                p = kw_pair(x)
                 p === nothing || return p
             end
         end
@@ -101,7 +111,8 @@ end
     return nothing
 end
 
-@inline function _kw_key_symbol(k)::Union{Symbol,Nothing}
+"""Extract keyword symbol from Symbol/QuoteNode, or `nothing`."""
+@inline function kw_key_symbol(k)::Union{Symbol,Nothing}
     if k isa Symbol
         return k
     elseif k isa QuoteNode && k.value isa Symbol
@@ -111,7 +122,8 @@ end
     end
 end
 
-function _extract_help_meta!(
+"""Extract and remove `help`/`help_name` keyword metadata from an argument list."""
+function extract_help_meta!(
     rest::Vector{Any};
     allow_help_name::Bool=true,
     macro_name::String=""
@@ -124,14 +136,14 @@ function _extract_help_meta!(
     i = 1
     while i <= length(rest)
         a = rest[i]
-        local p = _kw_pair(a)
+        local p = kw_pair(a)
         if p !== nothing
             key_raw, rhs = p
-            key = _kw_key_symbol(key_raw)
+            key = kw_key_symbol(key_raw)
             key === nothing && throw(ArgumentError(_ctx("invalid keyword name: $(repr(key_raw))")))
 
             if key == :help
-                rhs_s = _string_literal_value(rhs)
+                rhs_s = string_literal_value(rhs)
                 rhs_s === nothing && throw(ArgumentError(_ctx("help keyword accepts only a string literal")))
                 help_kw !== nothing && throw(ArgumentError(_ctx("duplicate help keyword provided")))
                 help_kw = rhs_s
@@ -139,7 +151,7 @@ function _extract_help_meta!(
                 continue
             elseif key == :help_name
                 allow_help_name || throw(ArgumentError(_ctx("help_name is not allowed here")))
-                rhs_s = _string_literal_value(rhs)
+                rhs_s = string_literal_value(rhs)
                 rhs_s === nothing && throw(ArgumentError(_ctx("help_name keyword accepts only a string literal")))
                 occursin('\n', rhs_s) && throw(ArgumentError(_ctx("help_name must be single-line text")))
                 help_name_kw !== nothing && throw(ArgumentError(_ctx("duplicate help_name keyword provided")))

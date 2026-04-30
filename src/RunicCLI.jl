@@ -6,6 +6,8 @@ import RunicCLIRuntime
 using Base: @kwdef
 
 const _RT = RunicCLIRuntime
+
+"""Create a `GlobalRef` pointing to a symbol in `RunicCLIRuntime`."""
 _gr(s::Symbol) = GlobalRef(_RT, s)
 
 export @CMD_MAIN, @CMD_SUB

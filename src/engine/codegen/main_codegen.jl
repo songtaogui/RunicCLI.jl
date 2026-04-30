@@ -1,4 +1,4 @@
-function _build_main_parser_expr(
+function build_main_parser_expr(
     struct_name, usage, desc, epilog, version, allow_extra, auto_help,
     fields, ctor_args, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr,
     relation_defs, arg_group_defs,
@@ -7,7 +7,7 @@ function _build_main_parser_expr(
     main_parser_name = gensym(:parse_main)
     main_result_expr = :( (; $(ctor_args...)) )
 
-    main_help_def_expr = _build_clidef_expr(
+    main_help_def_expr = build_clidef_expr(
         :(_path), usage, desc, epilog, version,
         :(_main_argdefs),
         :($(_gr(:SubcommandDef))[$(sub_def_items...)]),
@@ -16,7 +16,7 @@ function _build_main_parser_expr(
 
     static_clidef_name = gensym(Symbol(struct_name, "_clidef"))
 
-    static_clidef_expr = _build_clidef_expr(
+    static_clidef_expr = build_clidef_expr(
         QuoteNode(string(struct_name)),
         usage,
         desc,
@@ -40,7 +40,7 @@ function _build_main_parser_expr(
         $(static_clidef_name) = $(static_clidef_expr)
         $(_gr(:CLIDEFREGISTRY))[$(struct_name)] = $(static_clidef_name)
 
-        $(_emit_parser_function(
+        $(emit_parser_function(
             main_parser_name,
             main_result_expr,
             fields,
@@ -90,19 +90,19 @@ function _build_main_parser_expr(
             local _sub = nothing
             local _sub_idx = 0
             if !isempty($(sub_names))
-                local _flags_need_value, _flags_no_value = $(_gr(:_build_main_flag_sets))(_main_argdefs)
-                (_sub, _sub_idx) = $(_gr(:_locate_subcommand))(_argv_main_merged, $(sub_names), _flags_need_value, _flags_no_value)
+                local _flags_need_value, _flags_no_value = $(_gr(:build_main_flag_sets))(_main_argdefs)
+                (_sub, _sub_idx) = $(_gr(:locate_subcommand))(_argv_main_merged, $(sub_names), _flags_need_value, _flags_no_value)
             end
 
             if !isnothing(_sub)
-                local _flags_need_value, _flags_no_value = $(_gr(:_build_main_flag_sets))(_main_argdefs)
-                local _main_argv, _sub_argv = $(_gr(:_extract_global_options))(_argv_main_merged, _sub_idx, _flags_need_value, _flags_no_value)
+                local _flags_need_value, _flags_no_value = $(_gr(:build_main_flag_sets))(_main_argdefs)
+                local _main_argv, _sub_argv = $(_gr(:extract_global_options))(_argv_main_merged, _sub_idx, _flags_need_value, _flags_no_value)
 
-                if $(_gr(:_has_version_flag_before_dd))(_sub_argv)
+                if $(_gr(:has_version_flag_before_dd))(_sub_argv)
                     $(sub_version_branches...)
                 end
 
-                if $(_gr(:_has_help_flag_before_dd))(_sub_argv)
+                if $(_gr(:has_help_flag_before_dd))(_sub_argv)
                     $(sub_help_branches...)
                 end
 
@@ -111,11 +111,11 @@ function _build_main_parser_expr(
                 $(dispatch_branches...)
             end
 
-            if $(_gr(:_has_version_flag_before_dd))(_argv_main_merged)
+            if $(_gr(:has_version_flag_before_dd))(_argv_main_merged)
                 throw($(_gr(:ArgHelpRequested))($(version)))
             end
 
-            if $(_gr(:_has_help_flag_before_dd))(_argv_main_merged)
+            if $(_gr(:has_help_flag_before_dd))(_argv_main_merged)
                 local _def = $(main_help_def_expr)
                 throw($(_gr(:ArgHelpRequested))(_def, _path))
             end

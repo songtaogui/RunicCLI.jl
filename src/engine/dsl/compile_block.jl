@@ -1,4 +1,5 @@
-function _extract_rel_help!(args::Vector{Any}, macro_name::String)
+"""Extract `help=...` from relation macro arguments and return remaining args plus help text."""
+function extract_rel_help!(args::Vector{Any}, macro_name::String)
     help = ""
     kept = Any[]
 
@@ -15,7 +16,8 @@ function _extract_rel_help!(args::Vector{Any}, macro_name::String)
     return kept, help
 end
 
-function _expect_rel_member_symbol(x, macro_name::String)
+"""Convert one relation member argument to Symbol or throw an error."""
+function expect_rel_member_symbol(x, macro_name::String)
     if x isa Symbol
         return x
     elseif x isa QuoteNode && x.value isa Symbol
@@ -25,7 +27,8 @@ function _expect_rel_member_symbol(x, macro_name::String)
     end
 end
 
-function _parse_relation_expr(x, macro_name::String)::RelationExpr
+"""Parse relation DSL expression into `RelationExpr`."""
+function parse_relation_expr(x, macro_name::String)::RelationExpr
     if x isa Symbol
         return RelAll(members=[x])
     elseif x isa QuoteNode && x.value isa Symbol
@@ -35,19 +38,19 @@ function _parse_relation_expr(x, macro_name::String)::RelationExpr
 
         if fn == :all
             length(x.args) >= 2 || throw(ArgumentError("$(macro_name) all(...) requires at least one argument name"))
-            members = [_expect_rel_member_symbol(a, macro_name) for a in x.args[2:end]]
-            _ensure_no_duplicates!(members, macro_name, "all(...) members")
+            members = [expect_rel_member_symbol(a, macro_name) for a in x.args[2:end]]
+            ensure_no_duplicates!(members, macro_name, "all(...) members")
             return RelAll(members=members)
 
         elseif fn == :any
             length(x.args) >= 2 || throw(ArgumentError("$(macro_name) any(...) requires at least one argument name"))
-            members = [_expect_rel_member_symbol(a, macro_name) for a in x.args[2:end]]
-            _ensure_no_duplicates!(members, macro_name, "any(...) members")
+            members = [expect_rel_member_symbol(a, macro_name) for a in x.args[2:end]]
+            ensure_no_duplicates!(members, macro_name, "any(...) members")
             return RelAny(members=members)
 
         elseif fn == :not
             length(x.args) == 2 || throw(ArgumentError("$(macro_name) not(...) requires exactly one inner expression"))
-            return RelNot(inner=_parse_relation_expr(x.args[2], macro_name))
+            return RelNot(inner = parse_relation_expr(x.args[2], macro_name))
         end
     end
 
@@ -56,25 +59,27 @@ function _parse_relation_expr(x, macro_name::String)::RelationExpr
     ))
 end
 
-function _collect_relation_members!(out::Set{Symbol}, expr::RelationExpr)
+"""Collect all referenced symbols from a relation expression into a set."""
+function collect_relation_members!(out::Set{Symbol}, expr::RelationExpr)
     if expr isa RelAll
         foreach(s -> push!(out, s), expr.members)
     elseif expr isa RelAny
         foreach(s -> push!(out, s), expr.members)
     elseif expr isa RelNot
-        _collect_relation_members!(out, expr.inner)
+        collect_relation_members!(out, expr.inner)
     else
         throw(ArgumentError("internal error: unsupported RelationExpr"))
     end
 end
 
-function _handle_argrel_depends!(ctx::_CompileCtx, node::Expr)
+"""Handle `@ARGREL_DEPENDS` node and append compiled relation definition."""
+function handle_argrel_depends!(ctx::CompileCtx, node::Expr)
     raw = Any[node.args[i] for i in 3:length(node.args)]
-    raw, help = _extract_rel_help!(raw, "@ARGREL_DEPENDS")
+    raw, help = extract_rel_help!(raw, "@ARGREL_DEPENDS")
     length(raw) == 2 || throw(ArgumentError("@ARGREL_DEPENDS expects exactly two relation expressions"))
 
-    lhs = _parse_relation_expr(raw[1], "@ARGREL_DEPENDS")
-    rhs = _parse_relation_expr(raw[2], "@ARGREL_DEPENDS")
+    lhs = parse_relation_expr(raw[1], "@ARGREL_DEPENDS")
+    rhs = parse_relation_expr(raw[2], "@ARGREL_DEPENDS")
 
     push!(ctx.relation_defs, ArgRelationDef(
         kind=:depends,
@@ -84,13 +89,14 @@ function _handle_argrel_depends!(ctx::_CompileCtx, node::Expr)
     ))
 end
 
-function _handle_argrel_conflicts!(ctx::_CompileCtx, node::Expr)
+"""Handle `@ARGREL_CONFLICTS` node and append compiled relation definition."""
+function handle_argrel_conflicts!(ctx::CompileCtx, node::Expr)
     raw = Any[node.args[i] for i in 3:length(node.args)]
-    raw, help = _extract_rel_help!(raw, "@ARGREL_CONFLICTS")
+    raw, help = extract_rel_help!(raw, "@ARGREL_CONFLICTS")
     length(raw) == 2 || throw(ArgumentError("@ARGREL_CONFLICTS expects exactly two relation expressions"))
 
-    lhs = _parse_relation_expr(raw[1], "@ARGREL_CONFLICTS")
-    rhs = _parse_relation_expr(raw[2], "@ARGREL_CONFLICTS")
+    lhs = parse_relation_expr(raw[1], "@ARGREL_CONFLICTS")
+    rhs = parse_relation_expr(raw[2], "@ARGREL_CONFLICTS")
 
     push!(ctx.relation_defs, ArgRelationDef(
         kind=:conflicts,
@@ -100,13 +106,14 @@ function _handle_argrel_conflicts!(ctx::_CompileCtx, node::Expr)
     ))
 end
 
-function _handle_argrel_group_kind!(ctx::_CompileCtx, node::Expr, macro_name::String, kind::Symbol)
+"""Handle grouped relation macros and append a relation definition with shared logic."""
+function handle_argrel_group_kind!(ctx::CompileCtx, node::Expr, macro_name::String, kind::Symbol)
     raw = Any[node.args[i] for i in 3:length(node.args)]
-    raw, help = _extract_rel_help!(raw, macro_name)
+    raw, help = extract_rel_help!(raw, macro_name)
 
     !isempty(raw) || throw(ArgumentError("$(macro_name) requires at least one argument name"))
-    members = [_expect_rel_member_symbol(x, macro_name) for x in raw]
-    _ensure_no_duplicates!(members, macro_name, "argument names")
+    members = [expect_rel_member_symbol(x, macro_name) for x in raw]
+    ensure_no_duplicates!(members, macro_name, "argument names")
 
     push!(ctx.relation_defs, ArgRelationDef(
         kind=kind,
@@ -115,37 +122,43 @@ function _handle_argrel_group_kind!(ctx::_CompileCtx, node::Expr, macro_name::St
     ))
 end
 
-function _handle_argrel_atmostone!(ctx::_CompileCtx, node::Expr)
-    _handle_argrel_group_kind!(ctx, node, "@ARGREL_ATMOSTONE", :atmostone)
+"""Handle `@ARGREL_ATMOSTONE` relation macro."""
+function handle_argrel_atmostone!(ctx::CompileCtx, node::Expr)
+    handle_argrel_group_kind!(ctx, node, "@ARGREL_ATMOSTONE", :atmostone)
 end
 
-function _handle_argrel_atleastone!(ctx::_CompileCtx, node::Expr)
-    _handle_argrel_group_kind!(ctx, node, "@ARGREL_ATLEASTONE", :atleastone)
+"""Handle `@ARGREL_ATLEASTONE` relation macro."""
+function handle_argrel_atleastone!(ctx::CompileCtx, node::Expr)
+    handle_argrel_group_kind!(ctx, node, "@ARGREL_ATLEASTONE", :atleastone)
 end
 
-function _handle_argrel_onlyone!(ctx::_CompileCtx, node::Expr)
-    _handle_argrel_group_kind!(ctx, node, "@ARGREL_ONLYONE", :onlyone)
+"""Handle `@ARGREL_ONLYONE` relation macro."""
+function handle_argrel_onlyone!(ctx::CompileCtx, node::Expr)
+    handle_argrel_group_kind!(ctx, node, "@ARGREL_ONLYONE", :onlyone)
 end
 
-function _handle_argrel_allornone!(ctx::_CompileCtx, node::Expr)
-    _handle_argrel_group_kind!(ctx, node, "@ARGREL_ALLORNONE", :allornone)
+"""Handle `@ARGREL_ALLORNONE` relation macro."""
+function handle_argrel_allornone!(ctx::CompileCtx, node::Expr)
+    handle_argrel_group_kind!(ctx, node, "@ARGREL_ALLORNONE", :allornone)
 end
 
-function _handle_arg_group!(ctx::_CompileCtx, node::Expr)
+"""Handle `@ARG_GROUP` and record a titled argument group."""
+function handle_arg_group!(ctx::CompileCtx, node::Expr)
     length(node.args) >= 4 || throw(ArgumentError("@ARG_GROUP requires a title String and at least one argument name"))
 
     title = node.args[3]
     title isa String || throw(ArgumentError("@ARG_GROUP title must be a String literal"))
     isempty(strip(title)) && throw(ArgumentError("@ARG_GROUP title must not be empty"))
 
-    members = _collect_symbol_args(node, 4, "@ARG_GROUP", "argument name")
-    _ensure_min_count!(members, 1, "@ARG_GROUP", "argument names")
-    _ensure_no_duplicates!(members, "@ARG_GROUP", "argument names")
+    members = collect_symbol_args(node, 4, "@ARG_GROUP", "argument name")
+    ensure_min_count!(members, 1, "@ARG_GROUP", "argument names")
+    ensure_no_duplicates!(members, "@ARG_GROUP", "argument names")
 
     push!(ctx.arg_group_defs, ArgGroupDef(title=title, members=members))
 end
 
-function _handle_arg_test!(ctx::_CompileCtx, node::Expr)
+"""Handle `@ARG_TEST` and emit post-parse scalar validation statements."""
+function handle_arg_test!(ctx::CompileCtx, node::Expr)
     length(node.args) >= 5 || throw(ArgumentError("@ARG_TEST requires at least one argument name, a validator function, and optional message"))
 
     raw = Any[node.args[i] for i in 3:length(node.args)]
@@ -156,11 +169,11 @@ function _handle_arg_test!(ctx::_CompileCtx, node::Expr)
 
     nms = Symbol[]
     for i in 1:(fn_idx - 1)
-        nm = _expect_name_symbol(raw[i], "@ARG_TEST", "argument name")
+        nm = expect_name_symbol(raw[i], "@ARG_TEST", "argument name")
         nm in ctx.declared_names || throw(ArgumentError("@ARG_TEST references unknown argument: $(nm)"))
         push!(nms, nm)
     end
-    _ensure_no_duplicates!(nms, "@ARG_TEST", "argument names")
+    ensure_no_duplicates!(nms, "@ARG_TEST", "argument names")
 
     fn = raw[fn_idx]
     rest = raw[(fn_idx + 1):end]
@@ -182,15 +195,16 @@ function _handle_arg_test!(ctx::_CompileCtx, node::Expr)
             local _final_msg = $(_gr(:validator_resolve_message))(_vs, _vmsg, "Argument test failed")
             if !(isnothing($(nm)) || _vfn($(nm)))
                 local _vname = $(_gr(:validator_name))(_vfn)
-                $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * _final_msg * "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")")
+                $(_gr(:throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * _final_msg * "\n (validator=" * _vname * ", value=" * repr($(nm)) * ")")
             end
         end)
     end
 end
 
-function _handle_arg_stream!(ctx::_CompileCtx, node::Expr)
+"""Handle `@ARG_STREAM` and emit post-parse streaming validation statements."""
+function handle_arg_stream!(ctx::CompileCtx, node::Expr)
     length(node.args) >= 4 || throw(ArgumentError("@ARG_STREAM requires an argument name and a validator function"))
-    nm, rest = _extract_name_and_rest(node, 3, "@ARG_STREAM", "argument name")
+    nm, rest = extract_name_and_rest(node, 3, "@ARG_STREAM", "argument name")
     nm in ctx.declared_names || throw(ArgumentError("@ARG_STREAM references unknown argument: $(nm)"))
     isempty(rest) && throw(ArgumentError("@ARG_STREAM requires a validator function"))
 
@@ -219,42 +233,43 @@ function _handle_arg_stream!(ctx::_CompileCtx, node::Expr)
             push!(_fails, repr($(nm)))
         end
         if !isempty(_fails)
-            $(_gr(:_throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * _final_msg * "\n (validator=" * _vname * ", failed_values=[" * join(_fails, ", ") * "])")
+            $(_gr(:throw_arg_error))("Invalid arg: " * $(string(nm)) * " => " * _final_msg * "\n (validator=" * _vname * ", failed_values=[" * join(_fails, ", ") * "])")
         end
     end)
 end
 
-const _COMPILE_BLOCK_HANDLERS = Dict{Symbol,Function}(
-    SYM_ARGREL_DEPENDS => _handle_argrel_depends!,
-    SYM_ARGREL_CONFLICTS => _handle_argrel_conflicts!,
-    SYM_ARGREL_ATMOSTONE => _handle_argrel_atmostone!,
-    SYM_ARGREL_ATLEASTONE => _handle_argrel_atleastone!,
-    SYM_ARGREL_ONLYONE => _handle_argrel_onlyone!,
-    SYM_ARGREL_ALLORNONE => _handle_argrel_allornone!,
-    SYM_ARG_GROUP => _handle_arg_group!,
-    SYM_TEST => _handle_arg_test!,
-    SYM_STREAM => _handle_arg_stream!,
+const COMPILE_BLOCK_HANDLERS = Dict{Symbol,Function}(
+    SYM_ARGREL_DEPENDS => handle_argrel_depends!,
+    SYM_ARGREL_CONFLICTS => handle_argrel_conflicts!,
+    SYM_ARGREL_ATMOSTONE => handle_argrel_atmostone!,
+    SYM_ARGREL_ATLEASTONE => handle_argrel_atleastone!,
+    SYM_ARGREL_ONLYONE => handle_argrel_onlyone!,
+    SYM_ARGREL_ALLORNONE => handle_argrel_allornone!,
+    SYM_ARG_GROUP => handle_arg_group!,
+    SYM_TEST => handle_arg_test!,
+    SYM_STREAM => handle_arg_stream!,
 )
 
-function _compile_cmd_block(block::Expr)
-    ctx = _CompileCtx()
+"""Compile a command DSL block into fields, parse statements, argdefs, relations, and groups."""
+function compile_cmd_block(block::Expr)
+    ctx = CompileCtx()
 
-    for node in _getmacrocalls(block)
-        m = _getmacroname(node)
+    for node in getmacrocalls(block)
+        m = getmacroname(node)
         m === nothing && throw(ArgumentError("unsupported DSL macro expression"))
 
-        if haskey(_ARG_DECL_SPECS, m)
-            decl = _parse_decl_pipeline!(ctx, _ARG_DECL_SPECS[m], node)
-            _emit_decl_codegen!(ctx, decl)
+        if haskey(ARG_DECL_SPECS, m)
+            decl =parse_decl_pipeline!(ctx, ARG_DECL_SPECS[m], node)
+            emit_decl_codegen!(ctx, decl)
             continue
         end
 
-        handler = get(_COMPILE_BLOCK_HANDLERS, m, nothing)
+        handler = get(COMPILE_BLOCK_HANDLERS, m, nothing)
         handler === nothing && throw(ArgumentError("unsupported DSL macro: $(m)"))
         handler(ctx, node)
     end
 
-    _validate_relations!(ctx)
+    validate_relations!(ctx)
 
     return ctx.fields,
            ctx.option_parse_stmts,

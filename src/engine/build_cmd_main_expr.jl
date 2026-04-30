@@ -7,12 +7,12 @@ function build_cmd_main_expr(struct_name, block)
         throw(ArgumentError("@CMD_MAIN first argument must be a plain type name Symbol (e.g. MyType), dotted names are not supported"))
     end
 
-    nonmacro = _nonmacro_nodes(block)
+    nonmacro = nonmacro_nodes(block)
     if !isempty(nonmacro)
         throw(ArgumentError("Only DSL macros are allowed inside @CMD_MAIN block; found non-macro statement(s)"))
     end
 
-    main_meta = _parse_cmd_meta_block(
+    main_meta = parse_cmd_meta_block(
         block;
         initial_desc="",
         desc_predeclared=false,
@@ -31,17 +31,17 @@ function build_cmd_main_expr(struct_name, block)
     normalized_sub_nodes = NormalizedSubCmd[]
 
     for node in main_meta.other_nodes
-        m = _getmacroname(node)
+        m = getmacroname(node)
 
         if m == SYM_SUB
-            sub_name, sub_desc, sub_block = _parse_sub_signature(node)
+            sub_name, sub_desc, sub_block = parse_sub_signature(node)
 
-            nonmacro_sub = _nonmacro_nodes(sub_block)
+            nonmacro_sub = nonmacro_nodes(sub_block)
             if !isempty(nonmacro_sub)
                 throw(ArgumentError("Only DSL macros are allowed inside @CMD_SUB block; found non-macro statement(s)"))
             end
 
-            sub_meta = _parse_cmd_meta_block(
+            sub_meta = parse_cmd_meta_block(
                 sub_block;
                 initial_desc=sub_desc,
                 desc_predeclared=!isempty(sub_desc),
@@ -70,14 +70,14 @@ function build_cmd_main_expr(struct_name, block)
 
     main_block = Expr(:block, main_nodes...)
     fields, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr, relation_defs, arg_group_defs =
-        _compile_cmd_block(main_block)
+        compile_cmd_block(main_block)
 
     ctor_args = Symbol[f.args[1] for f in fields]
 
     sub_def_items, sub_parser_exprs, dispatch_branches, sub_help_branches, sub_version_branches, sub_names =
-        _build_subcommand_bundle(normalized_sub_nodes, struct_name, ctor_args)
+        build_subcommand_bundle(normalized_sub_nodes, struct_name, ctor_args)
 
-    return _build_main_parser_expr(
+    return build_main_parser_expr(
         struct_name, usage, desc, epilog, version, allow_extra, auto_help,
         fields, ctor_args, option_parse_stmts, positional_parse_stmts, post_stmts, argdefs_expr,
         relation_defs, arg_group_defs,

@@ -211,53 +211,53 @@ end
 
 @testset "edge coverage: parser utility branches" begin
     @testset "split multiflag rejects non ascii and invalid chars" begin
-        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime._split_multiflag("-é")
-        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime._split_multiflag("-a_")
+        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime.split_multiflag("-é")
+        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime.split_multiflag("-a_")
     end
 
     @testset "split arguments with negative literal in short head" begin
-        v = RunicCLIRuntime._split_arguments(["-a1.5"])
+        v = RunicCLIRuntime.split_arguments(["-a1.5"])
         @test v == ["-a", "1.5"]
     end
 
     @testset "pop_value_last and pop_value behavior" begin
         args1 = ["--name", "a", "--name", "b", "tail"]
-        v, seen = RunicCLIRuntime._pop_value_last!(args1, ["--name"], false)
+        v, seen = RunicCLIRuntime.pop_value_last!(args1, ["--name"], false)
         @test seen == true
         @test v == "b"
         @test args1 == ["tail"]
 
         args2 = ["--name", ""]
-        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime._pop_value!(args2, ["--name"], false)
+        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime.pop_value!(args2, ["--name"], false)
 
         args3 = ["--name", ""]
-        v3 = RunicCLIRuntime._pop_value!(args3, ["--name"], true)
+        v3 = RunicCLIRuntime.pop_value!(args3, ["--name"], true)
         @test v3 == ""
 
         args4 = ["--name", "--other"]
-        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime._pop_value!(args4, ["--name"], true)
+        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime.pop_value!(args4, ["--name"], true)
     end
 
     @testset "parse generic fallback branch" begin
         struct CtorOnlyType
             x::String
         end
-        val = RunicCLIRuntime._parse_value(CtorOnlyType, "abc", "k")
+        val = RunicCLIRuntime.parse_value(CtorOnlyType, "abc", "k")
         @test val == CtorOnlyType("abc")
 
         struct BadType end
-        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime._parse_value(BadType, "abc", "b")
+        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime.parse_value(BadType, "abc", "b")
     end
 
     @testset "convert_default error branch" begin
-        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime._convert_default(Int, "x", "n")
+        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime.convert_default(Int, "x", "n")
     end
 
     @testset "locate_subcommand strict_unknown_option false path" begin
         sub_names = ["run"]
         needv = Set(["-p", "--port"])
         nov = Set(["-v"])
-        s, i = RunicCLIRuntime._locate_subcommand(["--unknown", "run"], sub_names, needv, nov; strict_unknown_option=false)
+        s, i = RunicCLIRuntime.locate_subcommand(["--unknown", "run"], sub_names, needv, nov; strict_unknown_option=false)
         @test s == "run"
         @test i == 2
     end
@@ -266,7 +266,7 @@ end
         sub_names = ["run"]
         needv = Set(["-p"])
         nov = Set(["-v", "-q"])
-        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime._locate_subcommand(["-vpq", "1", "run"], sub_names, needv, nov)
+        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime.locate_subcommand(["-vpq", "1", "run"], sub_names, needv, nov)
     end
 end
 

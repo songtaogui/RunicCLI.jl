@@ -40,3 +40,8 @@ Add `help=""` kwargs to control msg.
 
 add `@CMD_AUTOHELP` for `@CMD_MAIN` and `@CMD_SUB` to turn on auto help msg if no args were provided.
 
+# V0.4.2
+
+## 1. rename all inner-functions
+
+No longer use `_` as the prefix of inner functions.

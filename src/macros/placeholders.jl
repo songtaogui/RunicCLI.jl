@@ -1,5 +1,5 @@
 
-@inline function _placeholder_macro_error(name::AbstractString)
+@inline function placeholder_macro_error(name::AbstractString)
     throw(ArgumentError(
         "$(name) can only be used inside @CMD_MAIN or @CMD_SUB blocks.\n" *
         "See `@doc $(name)` for details."
@@ -41,7 +41,7 @@ Subcommand example:
 end
 ```
 """
-macro CMD_USAGE(args...) _placeholder_macro_error("@CMD_USAGE") end
+macro CMD_USAGE(args...) placeholder_macro_error("@CMD_USAGE") end
 
 """
     @CMD_DESC "DESCRIPTION"
@@ -77,7 +77,7 @@ Subcommand example:
 end
 ```
 """
-macro CMD_DESC(args...) _placeholder_macro_error("@CMD_DESC") end
+macro CMD_DESC(args...) placeholder_macro_error("@CMD_DESC") end
 
 """
     @CMD_EPILOG "EPILOG TEXT"
@@ -112,7 +112,7 @@ Subcommand example:
 end
 ```
 """
-macro CMD_EPILOG(args...) _placeholder_macro_error("@CMD_EPILOG") end
+macro CMD_EPILOG(args...) placeholder_macro_error("@CMD_EPILOG") end
 
 """
     @CMD_VERSION "VERSION TEXT"
@@ -151,7 +151,7 @@ Subcommand example:
 end
 ```
 """
-macro CMD_VERSION(args...) _placeholder_macro_error("@CMD_VERSION") end
+macro CMD_VERSION(args...) placeholder_macro_error("@CMD_VERSION") end
 
 """
     @CMD_AUTOHELP
@@ -192,7 +192,7 @@ With this configuration:
 - `MyCLI(["serve"])` shows help for the `serve` subcommand.
 - `MyCLI(["--help"])` and `MyCLI(["serve", "--help"])` still show help explicitly.
 """
-macro CMD_AUTOHELP(args...) _placeholder_macro_error("@CMD_AUTOHELP") end
+macro CMD_AUTOHELP(args...) placeholder_macro_error("@CMD_AUTOHELP") end
 
 """
     @CMD_SUB "name" begin ... end
@@ -235,7 +235,7 @@ Example:
 end
 ```
 """
-macro CMD_SUB(args...) _placeholder_macro_error("@CMD_SUB") end
+macro CMD_SUB(args...) placeholder_macro_error("@CMD_SUB") end
 
 """
     @ARG_REQ T name flags... [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]
@@ -246,7 +246,7 @@ Behavior:
 - Produces a field of type `T`.
 - The option must be provided exactly once; missing value triggers a parse error.
 - Multiple occurrences of the same logical option are rejected.
-- Input text is converted using RunicCLI value parsing (`_parse_value`).
+- Input text is converted using RunicCLI value parsing (`parse_value`).
 - If `vfun` is provided, post-parse validation is applied as `vfun(value) == true`.
 - If `vmsg` is provided, it is used as custom failure text.
 - `vmsg` requires `vfun`.
@@ -268,7 +268,7 @@ Example:
 end
 ```
 """
-macro ARG_REQ(args...) _placeholder_macro_error("@ARG_REQ") end
+macro ARG_REQ(args...) placeholder_macro_error("@ARG_REQ") end
 
 
 """
@@ -338,7 +338,7 @@ Fallback chain:
 end
 ```
 """
-macro ARG_OPT(args...) _placeholder_macro_error("@ARG_OPT") end
+macro ARG_OPT(args...) placeholder_macro_error("@ARG_OPT") end
 
 """
     @ARG_FLAG name flags... [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]
@@ -370,7 +370,7 @@ Example:
 end
 ```
 """
-macro ARG_FLAG(args...) _placeholder_macro_error("@ARG_FLAG") end
+macro ARG_FLAG(args...) placeholder_macro_error("@ARG_FLAG") end
 
 """
     @ARG_COUNT name flags... [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]
@@ -402,7 +402,7 @@ Example:
 end
 ```
 """
-macro ARG_COUNT(args...) _placeholder_macro_error("@ARG_COUNT") end
+macro ARG_COUNT(args...) placeholder_macro_error("@ARG_COUNT") end
 
 
 """
@@ -435,7 +435,7 @@ Example:
 end
 ```
 """
-macro ARG_MULTI(args...) _placeholder_macro_error("@ARG_MULTI") end
+macro ARG_MULTI(args...) placeholder_macro_error("@ARG_MULTI") end
 
 """
     @POS_REQ T name [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]
@@ -446,7 +446,7 @@ Behavior:
 - Produces a field of type `T`.
 - Consumes the next positional token.
 - Missing token triggers a parse error.
-- Parsed using RunicCLI value parsing (`_parse_value`).
+- Parsed using RunicCLI value parsing (`parse_value`).
 - If `vfun` is provided, post-parse validation is applied as `vfun(value) == true`.
 - If `vmsg` is provided, it is used as custom failure text.
 - `vmsg` requires `vfun`.
@@ -467,7 +467,7 @@ Example:
 end
 ```
 """
-macro POS_REQ(args...) _placeholder_macro_error("@POS_REQ") end
+macro POS_REQ(args...) placeholder_macro_error("@POS_REQ") end
 
 """
     @POS_OPT T name [help="..."] [help_name="..."] [env="..."] [default=...] [fallback=other_arg] [vfun=...] [vmsg="..."]
@@ -507,7 +507,7 @@ Example:
 end
 ```
 """
-macro POS_OPT(args...) _placeholder_macro_error("@POS_OPT") end
+macro POS_OPT(args...) placeholder_macro_error("@POS_OPT") end
 
 """
     @POS_REST T name [help="..."] [help_name="..."] [vfun=...] [vmsg="..."]
@@ -540,7 +540,7 @@ Example:
 end
 ```
 """
-macro POS_REST(args...) _placeholder_macro_error("@POS_REST") end
+macro POS_REST(args...) placeholder_macro_error("@POS_REST") end
 
 """
     @ARGREL_ATMOSTONE a b c ... [help="..."]
@@ -573,7 +573,7 @@ Example:
 end
 ```
 """
-macro ARGREL_ATMOSTONE(args...) _placeholder_macro_error("@ARGREL_ATMOSTONE") end
+macro ARGREL_ATMOSTONE(args...) placeholder_macro_error("@ARGREL_ATMOSTONE") end
 
 """
     @ARGREL_ATLEASTONE a b c ... [help="..."]
@@ -605,7 +605,7 @@ Example:
 end
 ```
 """
-macro ARGREL_ATLEASTONE(args...) _placeholder_macro_error("@ARGREL_ATLEASTONE") end
+macro ARGREL_ATLEASTONE(args...) placeholder_macro_error("@ARGREL_ATLEASTONE") end
 
 """
     @ARGREL_DEPENDS lhs rhs [help="..."]
@@ -656,7 +656,7 @@ end
 end
 ```
 """
-macro ARGREL_DEPENDS(args...) _placeholder_macro_error("@ARGREL_DEPENDS") end
+macro ARGREL_DEPENDS(args...) placeholder_macro_error("@ARGREL_DEPENDS") end
 
 """
     @ARGREL_CONFLICTS lhs rhs [help="..."]
@@ -706,7 +706,7 @@ end
 end
 ```
 """
-macro ARGREL_CONFLICTS(args...) _placeholder_macro_error("@ARGREL_CONFLICTS") end
+macro ARGREL_CONFLICTS(args...) placeholder_macro_error("@ARGREL_CONFLICTS") end
 
 """
     @ARGREL_ONLYONE a b c ... [help="..."]
@@ -739,7 +739,7 @@ Example:
 end
 ```
 """
-macro ARGREL_ONLYONE(args...) _placeholder_macro_error("@ARGREL_ONLYONE") end
+macro ARGREL_ONLYONE(args...) placeholder_macro_error("@ARGREL_ONLYONE") end
 
 """
     @ARGREL_ALLORNONE a b c ... [help="..."]
@@ -771,7 +771,7 @@ Example:
 end
 ```
 """
-macro ARGREL_ALLORNONE(args...) _placeholder_macro_error("@ARGREL_ALLORNONE") end
+macro ARGREL_ALLORNONE(args...) placeholder_macro_error("@ARGREL_ALLORNONE") end
 
 """
     @ARG_TEST name... fn [msg]
@@ -865,7 +865,7 @@ Inline lambda:
 
 For vector-like arguments with per-element checks, see [`@ARG_STREAM`](@ref).
 """
-macro ARG_TEST(args...) _placeholder_macro_error("@ARG_TEST") end
+macro ARG_TEST(args...) placeholder_macro_error("@ARG_TEST") end
 
 """
     @ARG_STREAM name fn [msg]
@@ -929,7 +929,7 @@ Example:
 end
 ```
 """
-macro ARG_STREAM(args...) _placeholder_macro_error("@ARG_STREAM") end
+macro ARG_STREAM(args...) placeholder_macro_error("@ARG_STREAM") end
 
 """
     @ALLOW_EXTRA
@@ -955,7 +955,7 @@ Example:
 end
 ```
 """
-macro ALLOW_EXTRA(args...) _placeholder_macro_error("@ALLOW_EXTRA") end
+macro ALLOW_EXTRA(args...) placeholder_macro_error("@ALLOW_EXTRA") end
 
 
 """
@@ -1012,4 +1012,4 @@ end
 See also:
 [`@CMD_MAIN`](@ref), [`render_help`](@ref)
 """
-macro ARG_GROUP(args...) _placeholder_macro_error("@ARG_GROUP") end
+macro ARG_GROUP(args...) placeholder_macro_error("@ARG_GROUP") end

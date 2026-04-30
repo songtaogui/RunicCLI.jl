@@ -1,4 +1,5 @@
-function _compile_relation_expr_eval(expr::RelationExpr, count_var::Symbol)
+"""Compile a relation expression into a boolean expression over provided-count map."""
+function compile_relation_expr_eval(expr::RelationExpr, count_var::Symbol)
     if expr isa RelAll
         parts = [:(get($(count_var), $(QuoteNode(s)), 0) > 0) for s in expr.members]
         return isempty(parts) ? :(true) : reduce((a, b) -> :($a && $b), parts)
@@ -6,14 +7,15 @@ function _compile_relation_expr_eval(expr::RelationExpr, count_var::Symbol)
         parts = [:(get($(count_var), $(QuoteNode(s)), 0) > 0) for s in expr.members]
         return isempty(parts) ? :(false) : reduce((a, b) -> :($a || $b), parts)
     elseif expr isa RelNot
-        inner = _compile_relation_expr_eval(expr.inner, count_var)
+        inner = compile_relation_expr_eval(expr.inner, count_var)
         return :(!($inner))
     else
         throw(ArgumentError("internal error: unsupported RelationExpr"))
     end
 end
 
-function _compile_relation_expr_members(expr::RelationExpr)
+"""Collect all member symbols referenced by a relation expression."""
+function compile_relation_expr_members(expr::RelationExpr)
     acc = Set{Symbol}()
 
     function walk(x::RelationExpr)
@@ -32,7 +34,8 @@ function _compile_relation_expr_members(expr::RelationExpr)
     return collect(acc)
 end
 
-function _compile_default_relation_message(rel)
+"""Return default human-readable error text for a relation kind."""
+function compile_default_relation_message(rel)
     if rel.kind == :depends
         return "Argument relation violated: dependency condition not satisfied"
     elseif rel.kind == :conflicts
@@ -50,29 +53,30 @@ function _compile_default_relation_message(rel)
     end
 end
 
-function _compile_relation_checks(relation_defs)
+"""Compile all relation definitions into runtime validation statements."""
+function compile_relation_checks(relation_defs)
     checks = Expr[]
 
     for rel in relation_defs
-        msg = isempty(rel.help) ? _compile_default_relation_message(rel) : rel.help
+        msg = isempty(rel.help) ? compile_default_relation_message(rel) : rel.help
 
         if rel.kind == :depends
-            lhs_eval = _compile_relation_expr_eval(rel.lhs, :_provided_count_map)
-            rhs_eval = _compile_relation_expr_eval(rel.rhs, :_provided_count_map)
+            lhs_eval = compile_relation_expr_eval(rel.lhs, :_provided_count_map)
+            rhs_eval = compile_relation_expr_eval(rel.rhs, :_provided_count_map)
 
             push!(checks, quote
                 if $(lhs_eval) && !($(rhs_eval))
-                    $(_gr(:_throw_arg_error))($(msg))
+                    $(_gr(:throw_arg_error))($(msg))
                 end
             end)
 
         elseif rel.kind == :conflicts
-            lhs_eval = _compile_relation_expr_eval(rel.lhs, :_provided_count_map)
-            rhs_eval = _compile_relation_expr_eval(rel.rhs, :_provided_count_map)
+            lhs_eval = compile_relation_expr_eval(rel.lhs, :_provided_count_map)
+            rhs_eval = compile_relation_expr_eval(rel.rhs, :_provided_count_map)
 
             push!(checks, quote
                 if $(lhs_eval) && $(rhs_eval)
-                    $(_gr(:_throw_arg_error))($(msg))
+                    $(_gr(:throw_arg_error))($(msg))
                 end
             end)
 
@@ -84,7 +88,7 @@ function _compile_relation_checks(relation_defs)
             push!(checks, quote
                 local _rel_count = $(count_expr)
                 if _rel_count > 1
-                    $(_gr(:_throw_arg_error))($(msg))
+                    $(_gr(:throw_arg_error))($(msg))
                 end
             end)
 
@@ -96,7 +100,7 @@ function _compile_relation_checks(relation_defs)
             push!(checks, quote
                 local _rel_count = $(count_expr)
                 if _rel_count < 1
-                    $(_gr(:_throw_arg_error))($(msg))
+                    $(_gr(:throw_arg_error))($(msg))
                 end
             end)
 
@@ -108,7 +112,7 @@ function _compile_relation_checks(relation_defs)
             push!(checks, quote
                 local _rel_count = $(count_expr)
                 if _rel_count != 1
-                    $(_gr(:_throw_arg_error))($(msg))
+                    $(_gr(:throw_arg_error))($(msg))
                 end
             end)
 
@@ -121,7 +125,7 @@ function _compile_relation_checks(relation_defs)
             push!(checks, quote
                 local _rel_count = $(count_expr)
                 if !(_rel_count == 0 || _rel_count == $(n))
-                    $(_gr(:_throw_arg_error))($(msg))
+                    $(_gr(:throw_arg_error))($(msg))
                 end
             end)
 

@@ -9,7 +9,7 @@ Base.@kwdef struct ArgDeclSpec
     allow_fallback::Bool
 end
 
-const _ARG_DECL_SPECS = Dict{Symbol,ArgDeclSpec}(
+const ARG_DECL_SPECS = Dict{Symbol,ArgDeclSpec}(
     SYM_REQ     => ArgDeclSpec(macro_name="@ARG_REQ",   kind=AK_OPTION,       style=:opt_required, has_type=true,  require_flags=true,  allow_default=false, allow_env=false, allow_fallback=false),
     SYM_OPT     => ArgDeclSpec(macro_name="@ARG_OPT",   kind=AK_OPTION,       style=:opt_optional, has_type=true,  require_flags=true,  allow_default=true,  allow_env=true,  allow_fallback=true),
     SYM_FLAG    => ArgDeclSpec(macro_name="@ARG_FLAG",  kind=AK_FLAG,         style=:flag,         has_type=false, require_flags=true,  allow_default=false, allow_env=false, allow_fallback=false),
@@ -21,7 +21,7 @@ const _ARG_DECL_SPECS = Dict{Symbol,ArgDeclSpec}(
     SYM_POS_RST => ArgDeclSpec(macro_name="@POS_REST",  kind=AK_POS_REST,     style=:pos_rest,     has_type=true,  require_flags=false, allow_default=false, allow_env=false, allow_fallback=false),
 )
 
-mutable struct _CompileCtx
+mutable struct CompileCtx
     fields::Vector{Expr}
     option_parse_stmts::Vector{Expr}
     positional_parse_stmts::Vector{Expr}
@@ -36,7 +36,7 @@ mutable struct _CompileCtx
     flag_owner::Dict{String,Symbol}
 end
 
-_CompileCtx() = _CompileCtx(
+CompileCtx() = CompileCtx(
     Expr[], Expr[], Expr[], Expr[], Expr[],
     ArgRelationDef[],
     ArgGroupDef[],

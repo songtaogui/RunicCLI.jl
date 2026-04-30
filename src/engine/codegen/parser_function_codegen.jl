@@ -1,17 +1,19 @@
-function _compile_leftover_policy(allow_extra::Bool)
+"""Compile the leftover-argument handling policy based on `allow_extra`."""
+function compile_leftover_policy(allow_extra::Bool)
     if allow_extra
         return :(nothing)
     else
         return quote
             if !isempty(_args)
-                local _hint = any($(_gr(:_looks_like_negative_number_token)), _args) ? " Hint: pass positional negative numbers after '--' (e.g. -- -1)." : ""
-                $(_gr(:_throw_arg_error))($(_gr(:_msg_unknown_or_unexpected_arguments))(_args, _hint))
+                local _hint = any($(_gr(:looks_like_negative_number_token)), _args) ? " Hint: pass positional negative numbers after '--' (e.g. -- -1)." : ""
+                $(_gr(:throw_arg_error))($(_gr(:msg_unknown_or_unexpected_arguments))(_args, _hint))
             end
         end
     end
 end
 
-function _emit_provided_bookkeeping(ctor_args::Vector{Symbol})
+"""Emit bookkeeping statements that track whether each argument was provided."""
+function emit_provided_bookkeeping(ctor_args::Vector{Symbol})
     provided_init = Expr[]
     provided_finalize = Expr[]
 
@@ -26,7 +28,8 @@ function _emit_provided_bookkeeping(ctor_args::Vector{Symbol})
     return provided_init, provided_finalize
 end
 
-function _emit_parser_function(
+"""Emit a parser function body from compiled option/positional/relation statements."""
+function emit_parser_function(
     fname::Symbol,
     result_type,
     fields::Vector{Expr},
@@ -41,10 +44,10 @@ function _emit_parser_function(
     help_def_expr=:(nothing),
     help_path_expr=:(nothing)
 )
-    relation_checks = _compile_relation_checks(relation_defs)
-    leftover_check = strict_leftover ? _compile_leftover_policy(allow_extra) : :(nothing)
+    relation_checks = compile_relation_checks(relation_defs)
+    leftover_check = strict_leftover ? compile_leftover_policy(allow_extra) : :(nothing)
 
-    provided_init, provided_finalize = _emit_provided_bookkeeping(ctor_args)
+    provided_init, provided_finalize = emit_provided_bookkeeping(ctor_args)
 
     return_expr = if result_type isa Symbol
         :($(result_type)($([:( $(nm) ) for nm in ctor_args]...)))
@@ -52,7 +55,7 @@ function _emit_parser_function(
         result_type
     end
 
-    unknown_option_check = allow_extra ? :(nothing) : :($(_gr(:_reject_unknown_option_tokens))(_opt_args))
+    unknown_option_check = allow_extra ? :(nothing) : :($(_gr(:reject_unknown_option_tokens))(_opt_args))
 
     quote
         function $(fname)(argv::Vector{String}; allow_empty_option_value::Bool=false)
@@ -66,7 +69,7 @@ function _emit_parser_function(
                 end
             end
 
-            local _args_all = $(_gr(:_split_arguments))(copy(argv))
+            local _args_all = $(_gr(:split_arguments))(copy(argv))
             local _dd = findfirst(==("--"), _args_all)
 
             local _pre_dd::Vector{String}

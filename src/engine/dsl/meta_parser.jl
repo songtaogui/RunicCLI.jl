@@ -1,4 +1,5 @@
-function _expect_string_literal_at(node::Expr, idx::Int, macro_name::String, expect_ctx::String="")
+"""Read a required String literal argument from a macro node at a fixed index."""
+function expect_string_literal_at(node::Expr, idx::Int, macro_name::String, expect_ctx::String="")
     length(node.args) >= idx || throw(ArgumentError(
         isempty(expect_ctx) ?
         "$(macro_name) expects one String literal" :
@@ -6,7 +7,7 @@ function _expect_string_literal_at(node::Expr, idx::Int, macro_name::String, exp
     ))
     v = node.args[idx]
 
-    s = _string_literal_value(v)
+    s = string_literal_value(v)
     s === nothing && throw(ArgumentError(
         isempty(expect_ctx) ?
         "$(macro_name) expects a String literal" :
@@ -15,7 +16,8 @@ function _expect_string_literal_at(node::Expr, idx::Int, macro_name::String, exp
     return s
 end
 
-function _parse_cmd_meta_block(
+"""Parse command-level metadata macros from a block and return normalized meta plus remaining nodes."""
+function parse_cmd_meta_block(
     block::Expr;
     initial_desc::String="",
     desc_predeclared::Bool=false,
@@ -38,27 +40,27 @@ function _parse_cmd_meta_block(
 
     other_nodes = Expr[]
 
-    for node in _getmacrocalls(block)
-        m = _getmacroname(node)
+    for node in getmacrocalls(block)
+        m = getmacroname(node)
 
         if m == SYM_USAGE
             seen_usage && throw(ArgumentError("@CMD_USAGE is duplicated in $(dup_ctx)"))
-            usage = _expect_string_literal_at(node, 3, "@CMD_USAGE", expect_ctx)
+            usage = expect_string_literal_at(node, 3, "@CMD_USAGE", expect_ctx)
             seen_usage = true
 
         elseif m == SYM_DESC
             seen_desc && throw(ArgumentError("@CMD_DESC is duplicated in $(dup_ctx)"))
-            desc = _expect_string_literal_at(node, 3, "@CMD_DESC", expect_ctx)
+            desc = expect_string_literal_at(node, 3, "@CMD_DESC", expect_ctx)
             seen_desc = true
 
         elseif m == SYM_EPILOG
             seen_epilog && throw(ArgumentError("@CMD_EPILOG is duplicated in $(dup_ctx)"))
-            epilog = _expect_string_literal_at(node, 3, "@CMD_EPILOG", expect_ctx)
+            epilog = expect_string_literal_at(node, 3, "@CMD_EPILOG", expect_ctx)
             seen_epilog = true
 
         elseif m == SYM_VERSION
             seen_version && throw(ArgumentError("@CMD_VERSION is duplicated in $(dup_ctx)"))
-            version = _expect_string_literal_at(node, 3, "@CMD_VERSION", expect_ctx)
+            version = expect_string_literal_at(node, 3, "@CMD_VERSION", expect_ctx)
             seen_version = true
 
         elseif m == SYM_ALLOW

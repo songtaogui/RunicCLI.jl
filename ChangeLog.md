@@ -5,7 +5,7 @@
 - Redesign Validators, now add many usefull validators and docstring.
 
 # V0.2.3
-- RunicCLIRuntime: add additional path/file/dir validators and tests.
+- OracliRuntime: add additional path/file/dir validators and tests.
 
 # V0.3.0
 - Add `ValidatorSpec` struct, for better validator msg.
@@ -40,8 +40,11 @@ Add `help=""` kwargs to control msg.
 
 add `@CMD_AUTOHELP` for `@CMD_MAIN` and `@CMD_SUB` to turn on auto help msg if no args were provided.
 
-# V0.4.2
+# V1.0.0
 
 ## 1. rename all inner-functions
 
 No longer use `_` as the prefix of inner functions.
+
+## 2. Rename module: Oracli.jl
+

@@ -1,5 +1,5 @@
 using Test
-using RunicCLI
+using Oracli
 
 @testset "macro compile-time validation" begin
     @testset "placeholder macros must fail outside CMD_MAIN/CMD_SUB" begin

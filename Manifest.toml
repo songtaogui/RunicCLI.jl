@@ -2,7 +2,7 @@
 
 julia_version = "1.12.5"
 manifest_format = "2.0"
-project_hash = "36586dbf4fa414bd198a1f6d6e79504ac95719a5"
+project_hash = "836f752d3b837102b87feb79728fac0db659627f"
 
 [[deps.Dates]]
 deps = ["Printf"]
@@ -14,6 +14,20 @@ git-tree-sha1 = "1e0228a030642014fe5cfe68c2c0a818f9e3f522"
 uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 version = "0.5.16"
 
+[[deps.Oracli]]
+deps = ["MacroTools", "Reexport"]
+path = "."
+uuid = "67ca3c63-b4b2-4ee3-a21a-d0ea65885ced"
+version = "1.0.0"
+
+[[deps.OracliRuntime]]
+deps = ["Dates", "TOML", "TextWrap"]
+git-tree-sha1 = "9a3a7afb09a5784e2d4cfa51922b4816ee1abe9e"
+repo-rev = "master"
+repo-url = "https://github.com/songtaogui/OracliRuntime.jl"
+uuid = "2d9a0462-f75e-4e7b-a4a8-2f5f7a313918"
+version = "1.0.0"
+
 [[deps.Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
@@ -23,18 +37,6 @@ version = "1.11.0"
 git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
 uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "1.2.2"
-
-[[deps.RunicCLI]]
-deps = ["MacroTools", "Reexport", "RunicCLIRuntime"]
-path = "."
-uuid = "67ca3c63-b4b2-4ee3-a21a-d0ea65885ced"
-version = "0.4.1"
-
-[[deps.RunicCLIRuntime]]
-deps = ["Dates", "TOML", "TextWrap"]
-path = "/home/stgui/sftw/02_diy/00_stgui/RunicCLIRuntime/"
-uuid = "2d9a0462-f75e-4e7b-a4a8-2f5f7a313918"
-version = "0.4.2"
 
 [[deps.TOML]]
 deps = ["Dates"]

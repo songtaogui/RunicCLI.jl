@@ -246,7 +246,7 @@ Behavior:
 - Produces a field of type `T`.
 - The option must be provided exactly once; missing value triggers a parse error.
 - Multiple occurrences of the same logical option are rejected.
-- Input text is converted using RunicCLI value parsing (`parse_value`).
+- Input text is converted using Oracli value parsing (`parse_value`).
 - If `vfun` is provided, post-parse validation is applied as `vfun(value) == true`.
 - If `vmsg` is provided, it is used as custom failure text.
 - `vmsg` requires `vfun`.
@@ -286,7 +286,7 @@ Behavior:
 - After that initial resolution, if the final value is still `nothing` and `fallback=other_arg` is provided,
   the argument takes the final resolved value of `other_arg`.
 - CLI input and environment input are parsed as `T`.
-- `default` is converted to `T` using RunicCLI default conversion.
+- `default` is converted to `T` using Oracli default conversion.
 - Multiple occurrences of the same logical option are rejected.
 - If `vfun` is provided, validation is applied only when value is non-`nothing`.
 - If `vmsg` is provided, it is used as custom failure text.
@@ -446,7 +446,7 @@ Behavior:
 - Produces a field of type `T`.
 - Consumes the next positional token.
 - Missing token triggers a parse error.
-- Parsed using RunicCLI value parsing (`parse_value`).
+- Parsed using Oracli value parsing (`parse_value`).
 - If `vfun` is provided, post-parse validation is applied as `vfun(value) == true`.
 - If `vmsg` is provided, it is used as custom failure text.
 - `vmsg` requires `vfun`.
@@ -482,7 +482,7 @@ Behavior:
   3. `default=...`
   4. `nothing`
 - CLI input and environment input are parsed as `T`.
-- `default` is converted to `T` using RunicCLI default conversion.
+- `default` is converted to `T` using Oracli default conversion.
 - If `fallback=other_arg` is provided and the value is still `nothing`, this argument takes the final resolved value of `other_arg`.
 - If `vfun` is provided, validation is applied only when value is non-`nothing`.
 - If `vmsg` is provided, it is used as custom failure text.
@@ -774,7 +774,7 @@ end
 macro ARGREL_ALLORNONE(args...) placeholder_macro_error("@ARGREL_ALLORNONE") end
 
 """
-    @ARG_TEST name... fn [msg]
+    @ARG_TEST name... vfun=fn/validator [vmsg=msg]
 
 Declare post-parse validation for one or more argument values.
 
@@ -791,8 +791,8 @@ Behavior:
 Constraints:
 - Each `name` must refer to an already declared argument.
 - At least one argument name is required.
-- `fn` is required.
-- Optional `msg` must be a string literal.
+- `vfun` is required.
+- Optional `vmsg` must be a string literal.
 - At most one custom message is allowed.
 - Duplicate names in one invocation are rejected.
 - Not callable at runtime (placeholder macro outside DSL expansion).
@@ -801,9 +801,9 @@ Constraints:
 
 ## Built-in validator helpers
 
-`@ARG_TEST` works well with RunicCLI's built-ins:
+`@ARG_TEST` works well with Oracli's built-ins:
 
-For example: (See `RunicCLIRuntime` for all available validators)
+For example: (See `OracliRuntime` for all available validators)
 
 - Numeric
     - [`V_num_min(minv)`](@ref)
@@ -839,28 +839,21 @@ For example: (See `RunicCLIRuntime` for all available validators)
 Built-in composition:
 
 ```julia
-@ARG_TEST port V_AND(V_num_min(1), V_num_max(65535)) "port must be in 1..65535"
-@ARG_TEST mode V_any_oneof(["fast", "safe", "debug"]) "invalid mode"
-@ARG_TEST input V_AND(V_path_exists(), V_path_isfile(), V_path_readable()) "input must be a readable file"
+@ARG_TEST port vfun=V_AND(V_num_min(1), V_num_max(65535)) vmsg="port must be in 1..65535"
+@ARG_TEST mode vfun=V_any_oneof(["fast", "safe", "debug"]) vmsg="invalid mode"
+@ARG_TEST input vfun=V_AND(V_path_exists(), V_path_isfile(), V_path_readable()) vmsg="input must be a readable file"
 ```
 
 Multi-argument validation in one declaration:
 
 ```julia
-@ARG_TEST host backup_host x -> !isempty(strip(x)) "host must not be blank"
-```
-
-Custom validator function:
-
-```julia
-is_even_positive(x) = x > 0 && iseven(x)
-@ARG_TEST threads is_even_positive "threads must be a positive even integer"
+@ARG_TEST host backup_host vfun=x -> !isempty(strip(x)) vmsg="host must not be blank"
 ```
 
 Inline lambda:
 
 ```julia
-@ARG_TEST name x -> length(strip(x)) > 0 "name cannot be blank"
+@ARG_TEST name vfun=x -> length(strip(x)) > 0 vmsg="name cannot be blank"
 ```
 
 For vector-like arguments with per-element checks, see [`@ARG_STREAM`](@ref).
@@ -868,7 +861,7 @@ For vector-like arguments with per-element checks, see [`@ARG_STREAM`](@ref).
 macro ARG_TEST(args...) placeholder_macro_error("@ARG_TEST") end
 
 """
-    @ARG_STREAM name fn [msg]
+    @ARG_STREAM name vfun=fn [vmsg="diy error msg"]
 
 Declare element-wise validation for vector arguments, scalar validation otherwise.
 
@@ -881,7 +874,7 @@ Behavior:
 
 Constraints:
 - `name` must refer to an already declared argument.
-- `fn` is required.
+- `vfun` is required.
 - Optional `msg` must be a string literal.
 - At most one custom message is allowed.
 - Not callable at runtime (placeholder macro outside DSL expansion).
@@ -890,7 +883,7 @@ Constraints:
 
 ## Built-in validator helpers
 
-For example: (See `RunicCLIRuntime` for all available validators)
+For example: (See `OracliRuntime` for all available validators)
 
 - Numeric
     - [`V_num_min(minv)`](@ref)
@@ -925,7 +918,7 @@ Example:
 ```julia
 @CMD_MAIN MyCLI begin
     @ARG_MULTI Int ids "--id"
-    @ARG_STREAM ids x -> x > 0 "all ids must be positive"
+    @ARG_STREAM ids vfun=x -> x > 0 vmsg="all ids must be positive"
 end
 ```
 """

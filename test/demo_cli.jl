@@ -1,10 +1,10 @@
 #!/usr/bin/env julia
-using RunicCLI
+using Oracli
 
 @CMD_MAIN DemoCLI begin
     @CMD_USAGE "demo [OPTIONS] [SUBCOMMAND]"
     @CMD_VERSION "0.1.2"
-    @CMD_DESC "Integration test CLI for RunicCLI.jl"
+    @CMD_DESC "Integration test CLI for Oracli.jl"
     @CMD_EPILOG "Use --help on main or subcommands for details."
     @ARG_OPT Float64 ratio "-r" "--ratio" default=0.5 
 

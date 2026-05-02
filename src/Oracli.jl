@@ -1,13 +1,13 @@
-module RunicCLI
+module Oracli
 
 using Reexport
-import RunicCLIRuntime
-@reexport using RunicCLIRuntime
+import OracliRuntime
+@reexport using OracliRuntime
 using Base: @kwdef
 
-const _RT = RunicCLIRuntime
+const _RT = OracliRuntime
 
-"""Create a `GlobalRef` pointing to a symbol in `RunicCLIRuntime`."""
+"""Create a `GlobalRef` pointing to a symbol in `OracliRuntime`."""
 _gr(s::Symbol) = GlobalRef(_RT, s)
 
 export @CMD_MAIN, @CMD_SUB
@@ -21,6 +21,7 @@ export @ALLOW_EXTRA, @ARG_GROUP
 include("core/symbols.jl")
 include("core/ast_utils.jl")
 
+include("engine/errors.jl")
 include("engine/ir_types.jl")
 include("engine/semantic_checks.jl")
 include("engine/dsl_parser.jl")

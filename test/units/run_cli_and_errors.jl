@@ -1,5 +1,5 @@
 using Test
-using RunicCLI
+using Oracli
 
 @testset "run_cli and error surfaces" begin
     @testset "help exception path" begin

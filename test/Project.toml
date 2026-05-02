@@ -1,4 +1,4 @@
 [deps]
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
-RunicCLIRuntime = "2d9a0462-f75e-4e7b-a4a8-2f5f7a313918"
+OracliRuntime = "2d9a0462-f75e-4e7b-a4a8-2f5f7a313918"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

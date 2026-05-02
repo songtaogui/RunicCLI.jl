@@ -1,5 +1,5 @@
 using Test
-using RunicCLI
+using Oracli
 using Dates
 
 include("units/macro_compile_errors.jl")

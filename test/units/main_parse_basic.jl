@@ -1,5 +1,5 @@
 using Test
-using RunicCLI
+using Oracli
 
 @CMD_MAIN BasicCmdForTest begin
     @CMD_USAGE "basic [OPTIONS] SRC [DST]"
@@ -18,8 +18,8 @@ using RunicCLI
     @POS_OPT Int retry help="Retry count"
     @POS_REST String rest help="Remaining args"
 
-    @ARG_TEST port x -> x > 0 "port must be > 0"
-    @ARG_STREAM nums x -> x > 0 "all nums must be > 0"
+    @ARG_TEST port vfun=x -> x > 0 vmsg="port must be > 0"
+    @ARG_STREAM nums vfun=x -> x > 0 vmsg="all nums must be > 0"
 
     @ARGREL_ATMOSTONE verbose quiet help="verbose and quiet cannot be used together"
 end
@@ -90,7 +90,7 @@ end
             e
         end
 
-        @test err isa RunicCLI.ArgParseError
+        @test err isa Oracli.ArgParseError
         @test occursin("verbose and quiet cannot be used together", err.message)
     end
 
@@ -101,7 +101,7 @@ end
         catch e
             e
         end
-        @test err1 isa RunicCLI.ArgParseError
+        @test err1 isa Oracli.ArgParseError
         @test occursin("port must be > 0", err1.message)
 
         err2 = try
@@ -110,13 +110,13 @@ end
         catch e
             e
         end
-        @test err2 isa RunicCLI.ArgParseError
+        @test err2 isa Oracli.ArgParseError
         @test occursin("all nums must be > 0", err2.message)
     end
 
     @testset "required and duplicate option failures" begin
-        @test_throws RunicCLI.ArgParseError parse_cli(BasicCmdForTest, ["src"])
-        @test_throws RunicCLI.ArgParseError parse_cli(BasicCmdForTest, ["-p", "1", "-p", "2", "src"])
+        @test_throws Oracli.ArgParseError parse_cli(BasicCmdForTest, ["src"])
+        @test_throws Oracli.ArgParseError parse_cli(BasicCmdForTest, ["-p", "1", "-p", "2", "src"])
     end
 
     @testset "negative positional via double dash passthrough" begin
@@ -129,7 +129,7 @@ end
             parse_cli(BasicCmdForTest, ["--help"])
             @test false
         catch e
-            @test e isa RunicCLI.ArgHelpRequested
+            @test e isa Oracli.ArgHelpRequested
             @test occursin("Options:", e.message)
             @test occursin("Positional Arguments:", e.message)
         end
@@ -140,7 +140,7 @@ end
             parse_cli(AutoHelpMainCmdForTest, String[])
             @test false
         catch e
-            @test e isa RunicCLI.ArgHelpRequested
+            @test e isa Oracli.ArgHelpRequested
             @test occursin("Options:", e.message)
         end
     end
@@ -150,7 +150,7 @@ end
             parse_cli(AutoHelpSubCmdForTest, ["run"])
             @test false
         catch e
-            @test e isa RunicCLI.ArgHelpRequested
+            @test e isa Oracli.ArgHelpRequested
             @test occursin("Run subcommand.", e.message)
         end
     end

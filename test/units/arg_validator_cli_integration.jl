@@ -8,7 +8,7 @@
     @ARG_REQ String filepath "--filepath" vfun=V_AND(V_path_exists(), V_path_isfile(), V_path_readable())
     @ARG_MULTI Int nums "--num" vfun=V_num_range(0, 100)
 
-    @ARG_TEST level mode tag x -> !isnothing(x) "level/mode/tag should not be nothing"
+    @ARG_TEST level mode tag vfun=x -> !isnothing(x) vmsg="level/mode/tag should not be nothing"
 end
 
 @CMD_MAIN ValidatorCmdForArgTestMulti begin
@@ -19,7 +19,7 @@ end
     @ARG_REQ String mode "--mode"
     @ARG_REQ String tag "--tag"
 
-    @ARG_TEST level mode tag x -> begin
+    @ARG_TEST level mode tag vfun = x -> begin
         if x isa Int
             return x >= 1
         elseif x isa String
@@ -27,7 +27,7 @@ end
         else
             return false
         end
-    end "multi-arg validator failed"
+    end vmsg="multi-arg validator failed"
 end
 
 @testset "arg_validator_cli_integration" begin
@@ -43,27 +43,27 @@ end
         @test obj.filepath == path
         @test obj.nums == [1, 100]
 
-        @test_throws RunicCLI.ArgParseError parse_cli(
+        @test_throws Oracli.ArgParseError parse_cli(
             ValidatorCmdForTest,
             ["--level", "0", "--mode", "fast", "--tag", "item-7", "--filepath", path]
         )
 
-        @test_throws RunicCLI.ArgParseError parse_cli(
+        @test_throws Oracli.ArgParseError parse_cli(
             ValidatorCmdForTest,
             ["--level", "5", "--mode", "turbo", "--tag", "item-7", "--filepath", path]
         )
 
-        @test_throws RunicCLI.ArgParseError parse_cli(
+        @test_throws Oracli.ArgParseError parse_cli(
             ValidatorCmdForTest,
             ["--level", "5", "--mode", "fast", "--tag", "bad-tag", "--filepath", path]
         )
 
-        @test_throws RunicCLI.ArgParseError parse_cli(
+        @test_throws Oracli.ArgParseError parse_cli(
             ValidatorCmdForTest,
             ["--level", "5", "--mode", "fast", "--tag", "item-7", "--filepath", path * ".missing"]
         )
 
-        @test_throws RunicCLI.ArgParseError parse_cli(
+        @test_throws Oracli.ArgParseError parse_cli(
             ValidatorCmdForTest,
             ["--level", "5", "--mode", "fast", "--tag", "item-7", "--filepath", path, "--num", "-1"]
         )
@@ -77,17 +77,17 @@ end
     @test obj.mode == "fast"
     @test obj.tag == "item-1"
 
-    @test_throws RunicCLI.ArgParseError parse_cli(
+    @test_throws Oracli.ArgParseError parse_cli(
         ValidatorCmdForArgTestMulti,
         ["--level", "0", "--mode", "fast", "--tag", "item-1"]
     )
 
-    @test_throws RunicCLI.ArgParseError parse_cli(
+    @test_throws Oracli.ArgParseError parse_cli(
         ValidatorCmdForArgTestMulti,
         ["--level", "3", "--mode", "   ", "--tag", "item-1"]
     )
 
-    @test_throws RunicCLI.ArgParseError parse_cli(
+    @test_throws Oracli.ArgParseError parse_cli(
         ValidatorCmdForArgTestMulti,
         ["--level", "3", "--mode", "fast", "--tag", ""]
     )

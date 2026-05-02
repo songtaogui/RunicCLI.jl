@@ -1,5 +1,5 @@
 using Test
-using RunicCLI
+using Oracli
 
 @CMD_MAIN AppCmdForTest begin
     @CMD_DESC "Main app command"
@@ -53,7 +53,7 @@ end
             parse_cli(AppCmdForTest, ["run", "--help"])
             @test false
         catch e
-            @test e isa RunicCLI.ArgHelpRequested
+            @test e isa Oracli.ArgHelpRequested
             @test occursin("run", e.message)
             @test occursin("Task id", e.message)
         end
@@ -64,7 +64,7 @@ end
             parse_cli(AppCmdForTest, ["--help"])
             @test false
         catch e
-            @test e isa RunicCLI.ArgHelpRequested
+            @test e isa Oracli.ArgHelpRequested
             @test occursin("Subcommands:", e.message)
             @test occursin("run", e.message)
             @test occursin("echo", e.message)
@@ -113,11 +113,11 @@ end
     end
 
     @testset "unknown option is not consumed as positional" begin
-        @test_throws RunicCLI.ArgParseError parse_cli(GlobalAfterSubcommandForTest, ["run", "-f", "ABC", "--unknown"])
+        @test_throws Oracli.ArgParseError parse_cli(GlobalAfterSubcommandForTest, ["run", "-f", "ABC", "--unknown"])
     end
 
     @testset "subcommand unknown option is not consumed as positional" begin
-        @test_throws RunicCLI.ArgParseError parse_cli(GlobalAfterSubcommandForTest, ["run", "-f", "ABC", "-x", "out.txt"])
+        @test_throws Oracli.ArgParseError parse_cli(GlobalAfterSubcommandForTest, ["run", "-f", "ABC", "-x", "out.txt"])
     end
 
     @testset "dash-like positional still requires explicit separator" begin

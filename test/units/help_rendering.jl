@@ -1,5 +1,5 @@
 using Test
-using RunicCLI
+using Oracli
 
 @testset "help rendering templates" begin
     def = CliDef(

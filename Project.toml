@@ -1,14 +1,15 @@
-name = "RunicCLI"
+name = "Oracli"
 uuid = "67ca3c63-b4b2-4ee3-a21a-d0ea65885ced"
-version = "0.4.1"
+version = "1.0.0"
 authors = ["songtaogui<songtaogui@sina.com>"]
 
 [deps]
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
+OracliRuntime = "2d9a0462-f75e-4e7b-a4a8-2f5f7a313918"
 Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
-RunicCLIRuntime = "2d9a0462-f75e-4e7b-a4a8-2f5f7a313918"
 
 [compat]
 MacroTools = "0.5.16"
+OracliRuntime = "1.0.0"
 Reexport = "1.2.2"
 julia = "1.11"

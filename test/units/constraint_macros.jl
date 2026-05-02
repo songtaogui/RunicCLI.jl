@@ -1,5 +1,5 @@
 using Test
-using RunicCLI
+using Oracli
 
 @CMD_MAIN ConstraintCmdForTest begin
     @CMD_USAGE "constraint [OPTIONS] INPUT"
@@ -46,7 +46,7 @@ end
             e
         end
 
-        @test err isa RunicCLI.ArgParseError
+        @test err isa Oracli.ArgParseError
         @test occursin("one of json or yaml must be provided", err.message)
     end
 
@@ -78,7 +78,7 @@ end
             e
         end
 
-        @test err isa RunicCLI.ArgParseError
+        @test err isa Oracli.ArgParseError
         @test occursin("upload requires force or dryrun", err.message)
     end
 
@@ -96,7 +96,7 @@ end
             e
         end
 
-        @test err isa RunicCLI.ArgParseError
+        @test err isa Oracli.ArgParseError
         @test occursin("download cannot be combined with upload", err.message)
     end
 
@@ -120,7 +120,7 @@ end
             e
         end
 
-        @test err isa RunicCLI.ArgParseError
+        @test err isa Oracli.ArgParseError
         @test occursin("exactly one of alpha or beta must be provided", err.message)
     end
 
@@ -132,7 +132,7 @@ end
             e
         end
 
-        @test err isa RunicCLI.ArgParseError
+        @test err isa Oracli.ArgParseError
         @test occursin("exactly one of alpha or beta must be provided", err.message)
     end
 
@@ -156,7 +156,7 @@ end
             e
         end
 
-        @test err1 isa RunicCLI.ArgParseError
+        @test err1 isa Oracli.ArgParseError
         @test occursin("cert and key must be provided together", err1.message)
 
         err2 = try
@@ -166,7 +166,7 @@ end
             e
         end
 
-        @test err2 isa RunicCLI.ArgParseError
+        @test err2 isa Oracli.ArgParseError
         @test occursin("cert and key must be provided together", err2.message)
     end
 
@@ -175,7 +175,7 @@ end
             parse_cli(ConstraintCmdForTest, ["--help"])
             @test false
         catch e
-            @test e isa RunicCLI.ArgHelpRequested
+            @test e isa Oracli.ArgHelpRequested
             @test occursin("Constraints:", e.message)
             @test occursin("json", e.message)
             @test occursin("yaml", e.message)
@@ -195,7 +195,7 @@ end
             parse_cli(ConstraintCmdForTest, ["--help"]; help=HelpTemplateOptions(show_constraints=false))
             @test false
         catch e
-            @test e isa RunicCLI.ArgHelpRequested
+            @test e isa Oracli.ArgHelpRequested
             @test !occursin("Constraints:", e.message)
         end
     end

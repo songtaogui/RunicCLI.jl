@@ -24,7 +24,7 @@ end
                 parse_cli(VersionCmdForTest, argv)
                 @test false
             catch e
-                @test e isa RunicCLI.ArgHelpRequested
+                @test e isa Oracli.ArgHelpRequested
                 @test occursin("VersionCmdForTest 1.0.0", e.message)
             end
         end
@@ -35,7 +35,7 @@ end
             parse_cli(VersionCmdForTest, ["serve", "--version"])
             @test false
         catch e
-            @test e isa RunicCLI.ArgHelpRequested
+            @test e isa Oracli.ArgHelpRequested
             @test occursin("serve 2.3.4", e.message)
         end
     end
@@ -45,7 +45,7 @@ end
             parse_cli(VersionCmdForTest, ["serve", "--version"]; config=Dict("serve.version" => "serve OVERRIDE"))
             @test false
         catch e
-            @test e isa RunicCLI.ArgHelpRequested
+            @test e isa Oracli.ArgHelpRequested
             @test occursin("serve OVERRIDE", e.message)
         end
     end

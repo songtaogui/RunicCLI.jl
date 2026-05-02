@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="RunicCLI.jl logo" width="620">
+  <img src="assets/logo.svg" alt="Oracli.jl logo" width="620">
 </p>
 
-# RunicCLI.jl
+# Oracli.jl
 
 A macro-based, strongly-typed CLI definition framework for Julia, inspired by [ArgMacros.jl](https://github.com/zachmatson/ArgMacros.jl), extended with subcommands, mutual exclusion groups, multi-value options, structured help rendering, and exception-based control flow.
 
@@ -11,30 +11,30 @@ A macro-based, strongly-typed CLI definition framework for Julia, inspired by [A
 ## Installation
 
 <p>
-RunicCLI is a &nbsp;
+Oracli is a &nbsp;
     <a href="https://julialang.org">
         <img src="https://raw.githubusercontent.com/JuliaLang/julia-logo-graphics/master/images/julia.ico" width="16em">
         Julia Language
     </a>
-    &nbsp; package. To install RunicCLI,
+    &nbsp; package. To install Oracli,
     please <a href="https://docs.julialang.org/en/v1/manual/getting-started/">open
     Julia's interactive session (known as REPL)</a> and press <kbd>]</kbd>
     key in the REPL to use the package mode, then type the following command
 </p>
 
 ```julia
-pkg> add https://github.com/songtaogui/RunicCLI.jl
+pkg> add https://github.com/songtaogui/Oracli.jl
 ```
 
 !!! Todo
-    Register the package and install by `add RunicCLI`
+    Register the package and install by `add Oracli`
 
 ---
 
-## Why RunicCLI.jl
+## Why Oracli.jl
 
 Existing Julia CLI libraries are powerful, but each optimizes for a different axis (speed of generation, classic parser model, or usage-text grammar).  
-**RunicCLI.jl** focuses on a specific gap: a **macro-native, constraint-driven, auditable CLI layer** where command shape, validation rules, and help rendering are explicit and composable.
+**Oracli.jl** focuses on a specific gap: a **macro-native, constraint-driven, auditable CLI layer** where command shape, validation rules, and help rendering are explicit and composable.
 
 In practice, this means:
 
@@ -43,13 +43,13 @@ In practice, this means:
 - first-class handling of mutually exclusive options and validator chains,
 - and help output that is both structured and themeable for product-grade UX.
 
-If your CLI is growing from a script into an interface surface (for users, teams, or downstream embedding), RunicCLI is built for that transition.
+If your CLI is growing from a script into an interface surface (for users, teams, or downstream embedding), Oracli is built for that transition.
 
 ## Feature comparison
 > Notes for fairness: feature availability may vary by version and usage style.  
 > This table is intended as a practical baseline for evaluation.
 
-| Capability | RunicCLI.jl | ArgMacros.jl | ArgParse.jl | Comonicon.jl | DocOpt.jl |
+| Capability | Oracli.jl | ArgMacros.jl | ArgParse.jl | Comonicon.jl | DocOpt.jl |
 |---|:---|:---|:---|:---|:---|
 | Macro DSL declaration | ✅ | ✅ | ⚠️ (`@add_arg_table!` style) | ✅ | ❌ (usage-text driven) |
 | Typed option/positional parsing | ✅ | ✅ | ✅ | ✅ | ⚠️ (mostly string/bool oriented) |
@@ -88,11 +88,11 @@ If your CLI is growing from a script into an interface surface (for users, teams
 ## Quick start
 
 ```julia
-using RunicCLI
+using Oracli
 
 @CMD_MAIN MyCLI begin
     @CMD_USAGE "mycli [OPTIONS] <input> [SUBCOMMAND]"
-    @CMD_DESC "Example CLI built with RunicCLI"
+    @CMD_DESC "Example CLI built with Oracli"
     @CMD_EPILOG "Use `mycli <subcommand> --help` for subcommand details."
 
     @ARG_REQ Int threads "-t" "--threads" help="Number of worker threads", help_name="N"
@@ -251,7 +251,7 @@ Behavior:
   3. `default=...`
   4. `nothing` (only when no default is provided)
 - CLI input and environment input are parsed as `T`.
-- `default` is converted to `T` using RunicCLI default conversion.
+- `default` is converted to `T` using Oracli default conversion.
 - Multiple occurrences of the same logical option are rejected.
 
 Constraints:
@@ -328,7 +328,7 @@ Behavior:
   3. `default=...`
   4. `nothing` (only when no default is provided)
 - CLI input and environment input are parsed as `T`.
-- `default` is converted to `T` using RunicCLI default conversion.
+- `default` is converted to `T` using Oracli default conversion.
 
 Constraints:
 - `name` must be a symbol identifier.
@@ -519,7 +519,7 @@ If subcommand `serve` is selected:
 
 ## Help Template Guide (`help.jl`)
 
-This guide explains how to customize help rendering in `RunicCLI` using:
+This guide explains how to customize help rendering in `Oracli` using:
 
 - `HelpStyle` (`HELP_PLAIN`, `HELP_COLORED`)
 - `HelpTheme`
@@ -555,7 +555,7 @@ Use `build_help_template(...)` to quickly create a template with style/theme/for
 ### 2. Quick Start
 
 ```julia
-using RunicCLI
+using Oracli
 
 tpl = default_help_template()  # plain style
 # or:
@@ -671,7 +671,7 @@ tpl = build_help_template(
 ### 6. Full example: custom formatting profile
 
 ```julia
-using RunicCLI
+using Oracli
 
 def = CliDef(
     cmd_name = "pack",
@@ -728,7 +728,7 @@ This means you can implement highly customized templates by replacing one or mor
 ### 8. Minimal fully-custom template example
 
 ```julia
-using RunicCLI
+using Oracli
 
 tpl = ArgHelpTemplate(
     header = (io, def, path) -> println(io, "== ", isempty(path) ? def.cmd_name : path, " =="),

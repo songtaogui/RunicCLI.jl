@@ -1,15 +1,15 @@
 function build_cmd_main_expr(struct_name, block)
     if !(block isa Expr && block.head == :block)
-        throw(ArgumentError("@CMD_MAIN expects a `begin ... end` block as second argument"))
+        argerr("@CMD_MAIN expects a `begin ... end` block as second argument")
     end
 
     if !(struct_name isa Symbol)
-        throw(ArgumentError("@CMD_MAIN first argument must be a plain type name Symbol (e.g. MyType), dotted names are not supported"))
+        argerr("@CMD_MAIN first argument must be a plain type name Symbol (e.g. MyType), dotted names are not supported")
     end
 
     nonmacro = nonmacro_nodes(block)
     if !isempty(nonmacro)
-        throw(ArgumentError("Only DSL macros are allowed inside @CMD_MAIN block; found non-macro statement(s)"))
+        argerr("Only DSL macros are allowed inside @CMD_MAIN block; found non-macro statement(s)")
     end
 
     main_meta = parse_cmd_meta_block(
@@ -38,7 +38,7 @@ function build_cmd_main_expr(struct_name, block)
 
             nonmacro_sub = nonmacro_nodes(sub_block)
             if !isempty(nonmacro_sub)
-                throw(ArgumentError("Only DSL macros are allowed inside @CMD_SUB block; found non-macro statement(s)"))
+                argerr("Only DSL macros are allowed inside @CMD_SUB block; found non-macro statement(s)")
             end
 
             sub_meta = parse_cmd_meta_block(
@@ -50,7 +50,7 @@ function build_cmd_main_expr(struct_name, block)
             )
 
             if any(s.name == sub_name for s in normalized_sub_nodes)
-                throw(ArgumentError("duplicate subcommand name: $(sub_name)"))
+                argerr("duplicate subcommand name: $(sub_name)")
             end
 
             push!(normalized_sub_nodes, NormalizedSubCmd(

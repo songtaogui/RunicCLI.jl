@@ -42,9 +42,9 @@ deps = ["SHA"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 version = "1.11.0"
 
-[[deps.RunicCLIRuntime]]
+[[deps.OracliRuntime]]
 deps = ["TOML", "TextWrap"]
-path = "/home/stgui/sftw/02_diy/00_stgui/RunicCLI_SPLIT/RunicCLIRuntime"
+path = "/home/stgui/sftw/02_diy/00_stgui/Oracli_SPLIT/OracliRuntime"
 uuid = "2d9a0462-f75e-4e7b-a4a8-2f5f7a313918"
 version = "0.1.0"
 

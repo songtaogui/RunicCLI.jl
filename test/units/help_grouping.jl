@@ -11,7 +11,7 @@
         @ARG_GROUP "Runtime Options" verbose config
     end
 
-    def = RunicCLIRuntime.clidef(GroupedCli)
+    def = OracliRuntime.clidef(GroupedCli)
     txt = render_help(def)
 
     @test occursin("Usage:", txt)
@@ -40,7 +40,7 @@ end
         @ARG_GROUP "Advanced" config
     end
 
-    def = RunicCLIRuntime.clidef(PartiallyGroupedCli)
+    def = OracliRuntime.clidef(PartiallyGroupedCli)
     txt = render_help(def)
 
     @test occursin("I/O Group:", txt)

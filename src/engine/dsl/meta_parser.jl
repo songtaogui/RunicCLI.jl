@@ -44,32 +44,32 @@ function parse_cmd_meta_block(
         m = getmacroname(node)
 
         if m == SYM_USAGE
-            seen_usage && throw(ArgumentError("@CMD_USAGE is duplicated in $(dup_ctx)"))
+            seen_usage && argerr("@CMD_USAGE is duplicated in $(dup_ctx)")
             usage = expect_string_literal_at(node, 3, "@CMD_USAGE", expect_ctx)
             seen_usage = true
 
         elseif m == SYM_DESC
-            seen_desc && throw(ArgumentError("@CMD_DESC is duplicated in $(dup_ctx)"))
+            seen_desc && argerr("@CMD_DESC is duplicated in $(dup_ctx)")
             desc = expect_string_literal_at(node, 3, "@CMD_DESC", expect_ctx)
             seen_desc = true
 
         elseif m == SYM_EPILOG
-            seen_epilog && throw(ArgumentError("@CMD_EPILOG is duplicated in $(dup_ctx)"))
+            seen_epilog && argerr("@CMD_EPILOG is duplicated in $(dup_ctx)")
             epilog = expect_string_literal_at(node, 3, "@CMD_EPILOG", expect_ctx)
             seen_epilog = true
 
         elseif m == SYM_VERSION
-            seen_version && throw(ArgumentError("@CMD_VERSION is duplicated in $(dup_ctx)"))
+            seen_version && argerr("@CMD_VERSION is duplicated in $(dup_ctx)")
             version = expect_string_literal_at(node, 3, "@CMD_VERSION", expect_ctx)
             seen_version = true
 
         elseif m == SYM_ALLOW
-            seen_allow && throw(ArgumentError("@ALLOW_EXTRA is duplicated in $(dup_ctx)"))
+            seen_allow && argerr("@ALLOW_EXTRA is duplicated in $(dup_ctx)")
             allow_extra = true
             seen_allow = true
 
         elseif m == SYM_AUTOHELP
-            seen_auto_help && throw(ArgumentError("@CMD_AUTOHELP is duplicated in $(dup_ctx)"))
+            seen_auto_help && argerr("@CMD_AUTOHELP is duplicated in $(dup_ctx)")
             auto_help = true
             seen_auto_help = true
 

@@ -1,6 +1,6 @@
 # FILEPATH: test/test_edge_coverage.jl
 using Test
-using RunicCLI
+using Oracli
 
 @testset "edge coverage: macro entry validation" begin
     @testset "CMD_MAIN argument shape checks" begin
@@ -179,7 +179,7 @@ using RunicCLI
     @testset "validator declaration compile-time checks" begin
         ex_unknown_test = quote
             @CMD_MAIN UnknownTestRef begin
-                @ARG_TEST port x->x>0
+                @ARG_TEST port vfun=x->x>0
             end
         end
         @test_throws ArgumentError macroexpand(@__MODULE__, ex_unknown_test)
@@ -194,7 +194,7 @@ using RunicCLI
         ex_bad_test_msg = quote
             @CMD_MAIN BadTestMsg begin
                 @ARG_REQ Int port "-p"
-                @ARG_TEST port x->x>0 :bad
+                @ARG_TEST port vfun=x->x>0 vmsg=:bad
             end
         end
         @test_throws ArgumentError macroexpand(@__MODULE__, ex_bad_test_msg)
@@ -211,53 +211,53 @@ end
 
 @testset "edge coverage: parser utility branches" begin
     @testset "split multiflag rejects non ascii and invalid chars" begin
-        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime.split_multiflag("-é")
-        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime.split_multiflag("-a_")
+        @test_throws OracliRuntime.ArgParseError OracliRuntime.split_multiflag("-é")
+        @test_throws OracliRuntime.ArgParseError OracliRuntime.split_multiflag("-a_")
     end
 
     @testset "split arguments with negative literal in short head" begin
-        v = RunicCLIRuntime.split_arguments(["-a1.5"])
+        v = OracliRuntime.split_arguments(["-a1.5"])
         @test v == ["-a", "1.5"]
     end
 
     @testset "pop_value_last and pop_value behavior" begin
         args1 = ["--name", "a", "--name", "b", "tail"]
-        v, seen = RunicCLIRuntime.pop_value_last!(args1, ["--name"], false)
+        v, seen = OracliRuntime.pop_value_last!(args1, ["--name"], false)
         @test seen == true
         @test v == "b"
         @test args1 == ["tail"]
 
         args2 = ["--name", ""]
-        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime.pop_value!(args2, ["--name"], false)
+        @test_throws OracliRuntime.ArgParseError OracliRuntime.pop_value!(args2, ["--name"], false)
 
         args3 = ["--name", ""]
-        v3 = RunicCLIRuntime.pop_value!(args3, ["--name"], true)
+        v3 = OracliRuntime.pop_value!(args3, ["--name"], true)
         @test v3 == ""
 
         args4 = ["--name", "--other"]
-        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime.pop_value!(args4, ["--name"], true)
+        @test_throws OracliRuntime.ArgParseError OracliRuntime.pop_value!(args4, ["--name"], true)
     end
 
     @testset "parse generic fallback branch" begin
         struct CtorOnlyType
             x::String
         end
-        val = RunicCLIRuntime.parse_value(CtorOnlyType, "abc", "k")
+        val = OracliRuntime.parse_value(CtorOnlyType, "abc", "k")
         @test val == CtorOnlyType("abc")
 
         struct BadType end
-        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime.parse_value(BadType, "abc", "b")
+        @test_throws OracliRuntime.ArgParseError OracliRuntime.parse_value(BadType, "abc", "b")
     end
 
     @testset "convert_default error branch" begin
-        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime.convert_default(Int, "x", "n")
+        @test_throws OracliRuntime.ArgParseError OracliRuntime.convert_default(Int, "x", "n")
     end
 
     @testset "locate_subcommand strict_unknown_option false path" begin
         sub_names = ["run"]
         needv = Set(["-p", "--port"])
         nov = Set(["-v"])
-        s, i = RunicCLIRuntime.locate_subcommand(["--unknown", "run"], sub_names, needv, nov; strict_unknown_option=false)
+        s, i = OracliRuntime.locate_subcommand(["--unknown", "run"], sub_names, needv, nov; strict_unknown_option=false)
         @test s == "run"
         @test i == 2
     end
@@ -266,7 +266,7 @@ end
         sub_names = ["run"]
         needv = Set(["-p"])
         nov = Set(["-v", "-q"])
-        @test_throws RunicCLIRuntime.ArgParseError RunicCLIRuntime.locate_subcommand(["-vpq", "1", "run"], sub_names, needv, nov)
+        @test_throws OracliRuntime.ArgParseError OracliRuntime.locate_subcommand(["-vpq", "1", "run"], sub_names, needv, nov)
     end
 end
 
@@ -305,7 +305,7 @@ end
 
 @testset "edge coverage: runtime behavior" begin
     @testset "allow_empty_option_value switch" begin
-        @test_throws RunicCLIRuntime.ArgParseError parse_cli(EmptyValueCmd, ["--name", ""])
+        @test_throws OracliRuntime.ArgParseError parse_cli(EmptyValueCmd, ["--name", ""])
 
         obj = parse_cli(EmptyValueCmd, ["--name", ""]; allow_empty_option_value=true)
         @test obj.name == ""
@@ -316,7 +316,7 @@ end
         @test obj.verbose == true
         @test obj.src == "file.txt"
 
-        @test_throws RunicCLIRuntime.ArgParseError parse_cli(NoExtraMainCmd, ["file.txt", "--unknown"])
+        @test_throws OracliRuntime.ArgParseError parse_cli(NoExtraMainCmd, ["file.txt", "--unknown"])
     end
 
     @testset "ALLOW_EXTRA in subcommand" begin
@@ -324,7 +324,7 @@ end
         @test obj1.subcommand == "open"
         @test obj1.subcommand_args.target == "t"
 
-        @test_throws RunicCLIRuntime.ArgParseError parse_cli(AllowExtraSubCmd, ["strict", "t", "--x"])
+        @test_throws OracliRuntime.ArgParseError parse_cli(AllowExtraSubCmd, ["strict", "t", "--x"])
     end
 
     @testset "help_name appears in help text" begin
@@ -332,7 +332,7 @@ end
             parse_cli(HelpNameCmd, ["--help"])
             @test false
         catch e
-            @test e isa RunicCLIRuntime.ArgHelpRequested
+            @test e isa OracliRuntime.ArgHelpRequested
             @test occursin("SRC", e.message)
         end
     end

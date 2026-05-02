@@ -1,10 +1,10 @@
 """Validate one CLI flag string format."""
 function validate_flag!(f::String, macro_name::String)
-    isempty(strip(f)) && throw(ArgumentError("$(macro_name) flag must not be empty"))
-    occursin(r"\s", f) && throw(ArgumentError("$(macro_name) flag must not contain whitespace: $(repr(f))"))
-    (startswith(f, "-") && f != "-" && f != "--") || throw(ArgumentError("$(macro_name) invalid flag: $(f)"))
+    isempty(strip(f)) && argerr("$(macro_name) flag must not be empty")
+    occursin(r"\s", f) && argerr("$(macro_name) flag must not contain whitespace: $(repr(f))")
+    (startswith(f, "-") && f != "-" && f != "--") || argerr("$(macro_name) invalid flag: $(f)")
     if startswith(f, "-") && !startswith(f, "--") && length(f) != 2
-        throw(ArgumentError("$(macro_name) short flag must be exactly one character: $(f)"))
+        argerr("$(macro_name) short flag must be exactly one character: $(f)")
     end
 end
 
@@ -13,7 +13,7 @@ function register_flags!(ctx::CompileCtx, flags::Vector{String}, owner::Symbol, 
     for f in flags
         validate_flag!(f, macro_name)
         if haskey(ctx.flag_owner, f)
-            throw(ArgumentError("duplicate flag detected: $(f) used by $(ctx.flag_owner[f]) and $(owner)"))
+            argerr("duplicate flag detected: $(f) used by $(ctx.flag_owner[f]) and $(owner)")
         end
         ctx.flag_owner[f] = owner
     end
@@ -28,7 +28,7 @@ function extract_flags!(rest::Vector{Any}, macro_name::String)
         elseif x isa QuoteNode && x.value isa String
             push!(flags, x.value)
         else
-            throw(ArgumentError("$(macro_name) flags must be String literals; got $(repr(x))"))
+            argerr("$(macro_name) flags must be String literals; got $(repr(x))")
         end
     end
     return flags
@@ -69,66 +69,66 @@ function extract_decl_meta!(
 
         kraw, v = p
         k = kw_key_symbol(kraw)
-        k === nothing && throw(ArgumentError("$(macro_name) invalid keyword name: $(repr(kraw))"))
+        k === nothing && argerr("$(macro_name) invalid keyword name: $(repr(kraw))")
 
         if k == :help
-            seen_help && throw(ArgumentError("$(macro_name) duplicate keyword: help"))
+            seen_help && argerr("$(macro_name) duplicate keyword: help")
             s = string_literal_value(v)
-            s === nothing && throw(ArgumentError("$(macro_name) help must be a String literal"))
+            s === nothing && argerr("$(macro_name) help must be a String literal")
             help = s
             seen_help = true
 
         elseif k == :help_name
-            allow_help_name || throw(ArgumentError("$(macro_name) does not support help_name"))
-            seen_help_name && throw(ArgumentError("$(macro_name) duplicate keyword: help_name"))
+            allow_help_name || argerr("$(macro_name) does not support help_name")
+            seen_help_name && argerr("$(macro_name) duplicate keyword: help_name")
             s = string_literal_value(v)
-            s === nothing && throw(ArgumentError("$(macro_name) help_name must be a String literal"))
-            isempty(strip(s)) && throw(ArgumentError("$(macro_name) help_name must not be empty"))
-            occursin('\n', s) && throw(ArgumentError("$(macro_name) help_name must be a single-line String (newline is not allowed)"))
+            s === nothing && argerr("$(macro_name) help_name must be a String literal")
+            isempty(strip(s)) && argerr("$(macro_name) help_name must not be empty")
+            occursin('\n', s) && argerr("$(macro_name) help_name must be a single-line String (newline is not allowed)")
             help_name = s
             seen_help_name = true
 
         elseif k == :env
-            allow_env || throw(ArgumentError("$(macro_name) does not support env=\"...\""))
-            seen_env && throw(ArgumentError("$(macro_name) duplicate keyword: env"))
+            allow_env || argerr("$(macro_name) does not support env=\"...\"")
+            seen_env && argerr("$(macro_name) duplicate keyword: env")
             s = string_literal_value(v)
-            s === nothing && throw(ArgumentError("$(macro_name) env must be a String literal"))
-            isempty(strip(s)) && throw(ArgumentError("$(macro_name) env must not be empty"))
+            s === nothing && argerr("$(macro_name) env must be a String literal")
+            isempty(strip(s)) && argerr("$(macro_name) env must not be empty")
             env_name = s
             seen_env = true
 
         elseif k == :default
-            allow_default || throw(ArgumentError("$(macro_name) does not support default=..."))
-            seen_default && throw(ArgumentError("$(macro_name) duplicate keyword: default"))
+            allow_default || argerr("$(macro_name) does not support default=...")
+            seen_default && argerr("$(macro_name) duplicate keyword: default")
             default_expr = v
             seen_default = true
 
         elseif k == :fallback
-            allow_fallback || throw(ArgumentError("$(macro_name) does not support fallback=..."))
-            seen_fallback && throw(ArgumentError("$(macro_name) duplicate keyword: fallback"))
+            allow_fallback || argerr("$(macro_name) does not support fallback=...")
+            seen_fallback && argerr("$(macro_name) duplicate keyword: fallback")
             fb = _coerce_symbol_identifier(v; allow_wrapped=true)
-            fb === nothing && throw(ArgumentError("$(macro_name) fallback must be a Symbol identifier"))
+            fb === nothing && argerr("$(macro_name) fallback must be a Symbol identifier")
             fallback_name = fb
             seen_fallback = true
 
         elseif k == :vfun
-            seen_vfun && throw(ArgumentError("$(macro_name) duplicate keyword: vfun"))
+            seen_vfun && argerr("$(macro_name) duplicate keyword: vfun")
             vfun_expr = v
             seen_vfun = true
 
         elseif k == :vmsg
-            seen_vmsg && throw(ArgumentError("$(macro_name) duplicate keyword: vmsg"))
+            seen_vmsg && argerr("$(macro_name) duplicate keyword: vmsg")
             s = string_literal_value(v)
-            s === nothing && throw(ArgumentError("$(macro_name) vmsg must be a String literal"))
+            s === nothing && argerr("$(macro_name) vmsg must be a String literal")
             vmsg_text = s
             seen_vmsg = true
 
         else
-            throw(ArgumentError("$(macro_name) unknown keyword: $(k)"))
+            argerr("$(macro_name) unknown keyword: $(k)")
         end
     end
 
-    seen_vmsg && !seen_vfun && throw(ArgumentError("$(macro_name) vmsg requires vfun"))
+    seen_vmsg && !seen_vfun && argerr("$(macro_name) vmsg requires vfun")
     seen_vfun || (vmsg_text = "")
 
     return (
